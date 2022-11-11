@@ -12,3 +12,5 @@ ui = { git= 'https://github.com/Matthias-Fauconneau/ui' }
 ui = {path='../ui'}
 [patch.'https://github.com/Matthias-Fauconneau/image']
 image = {path='../image'}
+[patch.'https://github.com/Matthias-Fauconneau/num']
+num = {path='../num'}
