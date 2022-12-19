@@ -48,6 +48,13 @@ fn main() -> ui::Result {
     impl<T> Volume<Box<[T]>> {
         pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((size.z*size.y*size.x) as usize).collect()) }
     }
+    /*impl<T:num::Zero> Volume<Box<[T]>> {
+        pub fn zero(size: size) -> Self { Self::from_iter(size, std::iter::from_fn(|| Some(num::zero()))) }
+    }*/
+    impl<T:Default> Volume<Box<[T]>> {
+        pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::from_fn(|| Some(T::default()))) }
+    }
+
     let size = xyz{x: 513, y: 513, z: 512};
     let z = |std::ops::Range{start, end}| (start*size.z/12)*size.y*size.x..(end*size.z/12)*size.y*size.x;
     let material_volume = Volume::from_iter(size,
@@ -71,18 +78,18 @@ fn main() -> ui::Result {
     let source = Pencil{position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5}, direction: xyz{x: 0., y: 0., z: 1.}};
     //let wavelength = 650e-9;
 
-    let mut temperature = Volume::from_iter(size, z(0..12).map(|_| 0.));
+    use {atomic_float::AtomicF32, std::sync::atomic::Ordering::Relaxed};
+    let mut temperature : Volume<Box<[AtomicF32]>> = Volume::/*zero*/default(size);
 
     use vector::xy;
-    use std::sync::atomic::{AtomicU16, Ordering::Relaxed};
-    struct View(image::Image<Box<[AtomicU16]>>);
+    struct View(image::Image<Box<[f32]>>);
     impl ui::Widget for View { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) {
         let ref source = self.0;
-        let max = source.iter().map(|v| v.load(Relaxed)).max().unwrap() as u32;
-        if max == 0 { return; }
+        let max = source.iter().copied().reduce(f32::max).unwrap();
+        if max == 0. { return; }
         for y in 0..target.size.y {
             for x in 0..target.size.x {
-                let w = (source[xy{x: x*source.size.x/target.size.x, y: y*source.size.y/target.size.y}].load(Relaxed) as u32) * ((1<<10)-1) / max;
+                let w = (source[xy{x: x*source.size.x/target.size.x, y: y*source.size.y/target.size.y}]/max * ((1<<10)-1) as f32) as u32;
                 target[xy{x,y}] = w | w<<10 | w<<20;
             }
         }
@@ -90,12 +97,12 @@ fn main() -> ui::Result {
 
     use {rand_xoshiro::rand_core::SeedableRng, rand::Rng};
     let mut rng = rand_xoshiro::Xoshiro128Plus::seed_from_u64(0);
-    ui::run(&mut View(image::Image::zero(material_volume.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+    ui::run(&mut View(image::Image::zero(temperature.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
         // Light propagation
-        const N : usize = 8192;
+        const samples : usize = 8192;
         const workers : usize = 8;
         let task = |mut rng : rand_xoshiro::Xoshiro128Plus|{
-            for _ in 0..N/workers {
+            for _ in 0..samples/workers {
                 let Ray{mut position, mut direction} = source.sample();
                 //let R = 1.; // m
                 //let particle_diameter = 100e-9; // collagen
@@ -113,7 +120,8 @@ fn main() -> ui::Result {
                     let Material{absorption,scattering,anisotropy: g,..} = material_list[id as usize];
                     let length = 1./(material_volume.size.z as f32);
                     if rng.gen::<f32>() < absorption * length {
-                        assert!(image[{let xyz{y,z,..}=position; xy{x: y as u32, y: z as u32}}].fetch_add(1, Relaxed) != 0xFFFF);
+                        //assert!(image[{let xyz{y,z,..}=position; xy{x: y as u32, y: z as u32}}].fetch_add(1, Relaxed) != 0xFFFF);
+                        temperature[{let xyz{x,y,z}=position; xyz{x: x as u32, y: y as u32, z: z as u32}}].fetch_add(1., Relaxed);
                         break;
                     } // Absorption
                     //radiance *= f32::exp(-absorption * length);
@@ -139,10 +147,13 @@ fn main() -> ui::Result {
         };
         let start = std::time::Instant::now();
         for thread in [();workers].map(|_| unsafe{std::thread::Builder::new().spawn_unchecked(|| { task(rng.clone()); rng.jump() }).unwrap()}) { thread.join().unwrap(); }
-        let _elapsed = start.elapsed();
-        //println!("{} rays {}ms {}μs", N, elapsed.as_millis(), elapsed.as_micros()/(N as u128));
+        let elapsed = start.elapsed(); println!("{} samples {}ms {}μs", samples, elapsed.as_millis(), elapsed.as_micros()/(samples as u128));
         // Heat diffusion
+        let start = std::time::Instant::now();
         // Boundary conditions: constant temperature (Dirichlet): T_boundary=0
+        trait atomic_from_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
+        impl atomic_from_mut<f32> for AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
+        let mut temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
         for z in 1..size.z-1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
             let specific_heat_capacity = 4.; // c [kJ/(kg·K)]
             let mass_density = 1000.; // ρ [kg/m³]
@@ -152,9 +163,10 @@ fn main() -> ui::Result {
             let thermal_conductivity = 0.5; // k [W/(m·K)]
             // q = -k∇T (Fourier conduction)
             // Finite difference cartesian first order laplacian
-            let dxxT = temperature[xyz{x: x-1, y, z}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x: x+1, y, z}];
-            let dyyT = temperature[xyz{x, y: y-1, z}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x, y: y+1, z}];
-            let dzzT = temperature[xyz{x, y, z: z-1}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x, y, z: z+1}];
+            let T = |dx,dy,dz| temperature[xyz{x: (x as i32+dx) as u32, y: (y as i32+dy) as u32, z: (z as i32+dz) as u32}];
+            let dxxT = T(-1, 0, 0) - 2. * T(0, 0, 0) + T(1, 0, 0);
+            let dyyT = T(0, -1, 0) - 2. * T(0, 0, 0) + T(0, 1, 0);
+            let dzzT = T(0, 0, -1) - 2. * T(0, 0, 0) + T(0, 0, 1);
             let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T)
             let thermal_diffusivity = thermal_conductivity / (specific_heat_capacity * mass_density); // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ))
             let dtT = thermal_diffusivity * thermal_conduction; // dt(T) = αΔT
@@ -162,6 +174,11 @@ fn main() -> ui::Result {
             // Explicit time step (First order: Euler): T[t+1]  = T(t) + δt·dt(T)
             temperature[xyz{x,y,z}] += δt * dtT;
         }}}
+        let points = size.z*size.y*size.x;
+        let elapsed = start.elapsed(); println!("{} points {}ms {}μs", points, elapsed.as_millis(), elapsed.as_micros()/(points as u128));
+        for image_y in 0..image.size.y { for image_x in 0..image.size.x {
+            image[xy{x: image_x, y: image_y}] = (0..temperature.size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: image_y}]).sum::<f32>();
+        }}
         Ok(true)
     })
 }

@@ -4,6 +4,8 @@ package= { name= 'laser', version= '0.0.0', edition= '2021' }
 fehler = '*'
 rand_xoshiro = '*'
 rand = '*'
+atomic_float = '*'
+num = { git= 'https://github.com/Matthias-Fauconneau/num' }
 vector = { git= 'https://github.com/Matthias-Fauconneau/vector' }
 image = { git= 'https://github.com/Matthias-Fauconneau/image' }
 ui = { git= 'https://github.com/Matthias-Fauconneau/ui' }
