@@ -1,20 +1,21 @@
 #![feature(thread_spawn_unchecked)]
 fn main() -> ui::Result {
-    #![allow(non_camel_case_types,non_snake_case)]
+    #![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
     fn sq(x: f32) -> f32 { x*x }
 
-    struct Material {
-        id: u8,
+    #[derive(PartialEq)] struct Material {
         absorption: f32, // μa [mm¯¹]
         scattering: f32, // μs [mm¯¹]
         anisotropy: f32, // g (mean cosine of the deflection angle) [Henyey-Greenstein]
         #[allow(dead_code)] refractive_index: f32 // n
     }
-    let air = Material{id: 0, absorption: 0., scattering: 0., anisotropy: 1., refractive_index: 1.};
-    let bone = Material{id: 1, absorption: 0.019, scattering: 7.800, anisotropy: 0.89, refractive_index: 1.37};
-    let cerebrospinal_fluid = Material{id: 2, absorption: 0.004, scattering: 0.009, anisotropy: 0.89, refractive_index: 1.37};
-    let gray_matter = Material{id: 3, absorption: 0.020, scattering: 9.00, anisotropy: 0.89, refractive_index: 1.37};
-    let white_matter = Material{id: 4, absorption: 0.080, scattering: 40.9, anisotropy: 0.84, refractive_index: 1.37};
+    let ref air = Material{absorption: 0., scattering: 0., anisotropy: 1., refractive_index: 1.};
+    let ref bone = Material{absorption: 0.019, scattering: 7.800, anisotropy: 0.89, refractive_index: 1.37};
+    let ref cerebrospinal_fluid = Material{absorption: 0.004, scattering: 0.009, anisotropy: 0.89, refractive_index: 1.37};
+    let ref gray_matter = Material{absorption: 0.020, scattering: 9.00, anisotropy: 0.89, refractive_index: 1.37};
+    let ref white_matter = Material{absorption: 0.080, scattering: 40.9, anisotropy: 0.84, refractive_index: 1.37};
+    let material_list = [air, bone, cerebrospinal_fluid, gray_matter, white_matter];
+    let id = |material| material_list.iter().position(|&o| o == material).unwrap();
 
     use vector::{xyz, vec3};
     pub type uint3 = xyz<u32>;
@@ -32,9 +33,16 @@ fn main() -> ui::Result {
         type Output=T;
         fn index(&self, i:usize) -> &Self::Output { &self.data[i] }
     }
+    impl<T, D:std::ops::DerefMut<Target=[T]>> std::ops::IndexMut<usize> for Volume<D> {
+        fn index_mut(&mut self, i:usize) -> &mut Self::Output { &mut self.data[i] }
+    }
+
     impl<D> std::ops::Index<uint3> for Volume<D> where Self: std::ops::Index<usize> {
         type Output = <Self as std::ops::Index<usize>>::Output;
         fn index(&self, i:uint3) -> &Self::Output { &self[self.index(i)] }
+    }
+    impl<D> std::ops::IndexMut<uint3> for Volume<D> where Self: std::ops::IndexMut<usize> {
+        fn index_mut(&mut self, i:uint3) -> &mut Self::Output { let i = self.index(i); &mut self[i] }
     }
 
     impl<T> Volume<Box<[T]>> {
@@ -42,11 +50,11 @@ fn main() -> ui::Result {
     }
     let size = xyz{x: 513, y: 513, z: 512};
     let z = |std::ops::Range{start, end}| (start*size.z/12)*size.y*size.x..(end*size.z/12)*size.y*size.x;
-    let volume = Volume::from_iter(size,
-                   z(0..5).map(|_| bone.id)
-        .chain(z(5..6).map(|_| cerebrospinal_fluid.id))
-        .chain(z(6..7).map(|_| gray_matter.id))
-        .chain(z(7..12).map(|_| white_matter.id))
+    let material_volume = Volume::from_iter(size,
+                   z(0..5).map(|_| id(bone))
+        .chain(z(5..6).map(|_| id(cerebrospinal_fluid)))
+        .chain(z(6..7).map(|_| id(gray_matter)))
+        .chain(z(7..12).map(|_| id(white_matter)))
     );
 
     #[derive(Clone,Copy)] struct Ray { position: vec3, direction: vec3 }
@@ -63,8 +71,7 @@ fn main() -> ui::Result {
     let source = Pencil{position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5}, direction: xyz{x: 0., y: 0., z: 1.}};
     //let wavelength = 650e-9;
 
-    let materials = [air, bone, cerebrospinal_fluid, gray_matter, white_matter];
-    for (table_index, material) in materials.iter().enumerate() { assert!(material.id == table_index as u8); }
+    let mut temperature = Volume::from_iter(size, z(0..12).map(|_| 0.));
 
     use vector::xy;
     use std::sync::atomic::{AtomicU16, Ordering::Relaxed};
@@ -83,7 +90,8 @@ fn main() -> ui::Result {
 
     use {rand_xoshiro::rand_core::SeedableRng, rand::Rng};
     let mut rng = rand_xoshiro::Xoshiro128Plus::seed_from_u64(0);
-    ui::run(&mut View(image::Image::zero(volume.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+    ui::run(&mut View(image::Image::zero(material_volume.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+        // Light propagation
         const N : usize = 8192;
         const workers : usize = 8;
         let task = |mut rng : rand_xoshiro::Xoshiro128Plus|{
@@ -100,10 +108,10 @@ fn main() -> ui::Result {
                 //let scattering_coefficient = number_density_of_particles * scattering_cross_section; // homogeneous (uniform a)
                 //let mut radiance = 1.;
                 loop {
-                    {let xyz{x,y,z}=position; if x < 0. || x >= volume.size.x as f32 || y < 0. || y >= volume.size.y as f32 || z < 0. || z >= volume.size.z as f32 { break; }}
-                    let id = volume[{let xyz{x,y,z}=position; xyz{x: x as u32, y: y as u32, z: z as u32}}];
-                    let Material{absorption,scattering,anisotropy: g,..} = materials[id as usize];
-                    let length = 1./(volume.size.z as f32);
+                    {let xyz{x,y,z}=position; if x < 0. || x >= material_volume.size.x as f32 || y < 0. || y >= material_volume.size.y as f32 || z < 0. || z >= material_volume.size.z as f32 { break; }}
+                    let id = material_volume[{let xyz{x,y,z}=position; xyz{x: x as u32, y: y as u32, z: z as u32}}];
+                    let Material{absorption,scattering,anisotropy: g,..} = material_list[id as usize];
+                    let length = 1./(material_volume.size.z as f32);
                     if rng.gen::<f32>() < absorption * length {
                         assert!(image[{let xyz{y,z,..}=position; xy{x: y as u32, y: z as u32}}].fetch_add(1, Relaxed) != 0xFFFF);
                         break;
@@ -131,8 +139,29 @@ fn main() -> ui::Result {
         };
         let start = std::time::Instant::now();
         for thread in [();workers].map(|_| unsafe{std::thread::Builder::new().spawn_unchecked(|| { task(rng.clone()); rng.jump() }).unwrap()}) { thread.join().unwrap(); }
-        let elapsed = start.elapsed();
+        let _elapsed = start.elapsed();
         //println!("{} rays {}ms {}μs", N, elapsed.as_millis(), elapsed.as_micros()/(N as u128));
+        // Heat diffusion
+        // Boundary conditions: constant temperature (Dirichlet): T_boundary=0
+        for z in 1..size.z-1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
+            let specific_heat_capacity = 4.; // c [kJ/(kg·K)]
+            let mass_density = 1000.; // ρ [kg/m³]
+            // dt(Q) = c ρ dt(T) : heat energy
+            // dt(Q) = - dx(q): heat flow (positive outgoing)
+            // => dt(T) = - 1/(cρ) dx(q)
+            let thermal_conductivity = 0.5; // k [W/(m·K)]
+            // q = -k∇T (Fourier conduction)
+            // Finite difference cartesian first order laplacian
+            let dxxT = temperature[xyz{x: x-1, y, z}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x: x+1, y, z}];
+            let dyyT = temperature[xyz{x, y: y-1, z}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x, y: y+1, z}];
+            let dzzT = temperature[xyz{x, y, z: z-1}] - 2.*temperature[xyz{x,y,z}] + temperature[xyz{x, y, z: z+1}];
+            let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T)
+            let thermal_diffusivity = thermal_conductivity / (specific_heat_capacity * mass_density); // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ))
+            let dtT = thermal_diffusivity * thermal_conduction; // dt(T) = αΔT
+            let δt = 1.; // Time step
+            // Explicit time step (First order: Euler): T[t+1]  = T(t) + δt·dt(T)
+            temperature[xyz{x,y,z}] += δt * dtT;
+        }}}
         Ok(true)
     })
 }
