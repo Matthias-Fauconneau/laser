@@ -10,8 +10,9 @@ itertools = '*'
 atomic_float = '*'
 rand = '*'
 rand_xoshiro = '*'
-ravif = { git='https://github.com/kornelski/cavif-rs', optional = true }
-rav1e = { version = "0.6.1", default-features = false, features = ["threading"], optional = true } # ravif misses pub use rav1e::color::PixelRange
+rand-distributions = { package= 'rand_distr', version= '*' }
+ravif = { git='https://github.com/kornelski/cavif-rs', optional= true }
+rav1e = { version= "0.6.1", default-features= false, features= ["threading"], optional= true } # ravif misses pub use rav1e::color::PixelRange
 num = { git= 'https://github.com/Matthias-Fauconneau/num' }
 vector = { git= 'https://github.com/Matthias-Fauconneau/vector' }
 image = { git= 'https://github.com/Matthias-Fauconneau/image' }

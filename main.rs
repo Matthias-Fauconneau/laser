@@ -66,7 +66,6 @@ fn main() -> ui::Result {
 
     #[derive(PartialEq)] struct Material {
         density: f32, // ρ [kg/m³]
-        // => refractive_index: f32 // n
         specific_heat_capacity: f32, // c [J/(kg·K)]
         thermal_conductivity: f32,  // k [W/(m·K)]
         absorption: f32, // μa [m¯¹]
@@ -74,30 +73,24 @@ fn main() -> ui::Result {
     }
     let anisotropy = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
     let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / anisotropy;
+    let T = 273.15 + 36.85; // K
     let ref glue = Material{
         density: 895.,
-        specific_heat_capacity: 3353.5 /*+ 5.245 * T*/,
-        thermal_conductivity: 0.3528 /*+ 0.001645 * T*/,
-        absorption: 519. /*- 0.5 * T*/,
-        scattering: scattering(1.),
+        specific_heat_capacity: 3353.5 + 5.245 * T,
+        thermal_conductivity: 0.3528 + 0.001645 * T,
+        absorption: 519. - 0.5 * T, scattering: scattering(1.),
     };
     let ref tissue = Material{
         density: 1030.,
         specific_heat_capacity: 3595.,
         thermal_conductivity: 0.49,
-        absorption: 7.540 /*@750nm*/,
-        scattering: scattering(9.99),
-        //blood_volume_fraction: 0.0093,
-        //hemoglobin_oxygen_saturation: 0.8,
-        //water_volume_fraction: 0.5,
-        //scattering_parameter_a:  3670,
-        //scattering_parameter_b: 1.27,
+        absorption: 7.540, scattering: scattering(9.99), //@750nm
     };
-    // surface_emissivity: 0.95
+    //panic!("{} {} {}", glue.absorption, tissue.absorption, glue.absorption/tissue.absorption);
     let material_list = [glue, tissue];
     let id = |material| material_list.iter().position(|&o| o == material).unwrap();
 
-    let size = xyz{x: 513, y: 513, z: 512};
+    let size = xyz{x: 512, y: 512, z: 513};
 
     let (height, material_volume) = if true {
         let glue_height = 0.2e-2;
@@ -123,14 +116,25 @@ fn main() -> ui::Result {
         // Light propagation
         const samples : usize = 8192;
         const threads : usize = 8;
-        let task = |mut rng : rand_xoshiro::Xoshiro128Plus|{
+        let task = |ref mut rng : rand_xoshiro::Xoshiro128Plus|{
             for _ in 0..samples/threads {
                 let laser_position = xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5};
                 let laser_direction = xyz{x: 0., y: 0., z: 1.};
-                let mut position = laser_position; // TODO: Spotsize diameter: 0.8 cm (circular, top-hat or gaussian)
-                let mut direction = laser_direction; // TODO: low divergence
+                let diameter = 0.8e-2 / δx;
+                let mut position = laser_position + {
+                    let xy{x,y} = if true { // Approximate Airy disc using gaussian
+                        xy{x: diameter/2. * rng.sample::<f32,_>(rand_distributions::StandardNormal), y: diameter/2. * rng.sample::<f32,_>(rand_distributions::StandardNormal)}
+                    } else {
+                        use rand::distributions::{Distribution, Uniform};
+                        let square = Uniform::new_inclusive(-diameter/2., diameter/2.);
+                        loop { let p = xy{x: Distribution::sample(&square, rng), y: Distribution::sample(&square, rng)}; if vector::sq(p) <= sq(diameter/2.) { break p; } }
+                    };
+                    xyz{x,y, z: 0.}
+                };
+                let mut direction = laser_direction; // TODO: divergence
                 //let wavelength = 750e-9;
                 //let power = 1.5-2 W
+                //let peak_intensity = power * pi*sq(diameter)/4 / (sq(wavelength)*sq(focal_length)) // W/m²
 
                 loop {
                     {let xyz{x,y,z}=position; if x < 0. || x >= material_volume.size.x as f32 || y < 0. || y >= material_volume.size.y as f32 || z < 0. || z >= material_volume.size.z as f32 { break; }}
@@ -170,38 +174,41 @@ fn main() -> ui::Result {
 
             let temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
             let mut next_temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut next_temperature.data));
-
-            // Boundary conditions: constant temperature (Dirichlet): T_boundary=0
-            let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[f32]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
-                let specific_heat_capacity = 4000.; // c [J/(kg·K)]
-                let mass_density = 1000.; // ρ [kg/m³]
-                // dt(Q) = c ρ dt(T) : heat energy
-                // dt(Q) = - dx(q): heat flow (positive outgoing)
-                // => dt(T) = - 1/(cρ) dx(q)
-                let thermal_conductivity = 0.5; // k [W/(m·K)]
-                // q = -k∇T (Fourier conduction)
-                // Finite difference cartesian first order laplacian
-                let T = |dx,dy,dz| temperature[xyz{x: (x as i32+dx) as u32, y: (y as i32+dy) as u32, z: (z as i32+dz) as u32}];
-                let dxxT = ( T(-1, 0, 0) - 2. * T(0, 0, 0) + T(1, 0, 0) ) / sq(δx);
-                let dyyT = ( T(0, -1, 0) - 2. * T(0, 0, 0) + T(0, 1, 0) ) / sq(δx);
-                let dzzT = ( T(0, 0, -1) - 2. * T(0, 0, 0) + T(0, 0, 1) ) / sq(δx);
-                let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T)
-                let thermal_diffusivity = thermal_conductivity / (specific_heat_capacity * mass_density); // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ))
-                let dtT = thermal_diffusivity * thermal_conduction; // dt(T) = αΔT
-                let δt = 0.1 / (thermal_diffusivity / sq(δx)); // Time step
-                let C = thermal_diffusivity / sq(δx) * δt;
-                assert!(C < 1./2., "{C}"); // Courant–Friedrichs–Lewy condition
-                // Explicit time step (First order: Euler): T[t+1]  = T(t) + δt·dt(T)
-                next_temperature_chunk[xyz{x, y, z: z-z0}] = T(0,0,0) + δt * dtT;
-            }}};
-            let range = 1..size.z-1;
-            next_temperature.take_mut(range.start);
-            std::thread::scope(|s| for thread in std::array::from_fn::<_, threads, _>(move |thread| {
-                let z0 = range.start + (range.end-range.start)*thread as u32/threads as u32;
-                let z1 = range.start + (range.end-range.start)*(thread as u32+1)/threads as u32;
-                let next_temperature_chunk = next_temperature.take_mut(z1-z0);
-                std::thread::Builder::new().spawn_scoped(s, move || task(z0, z1, next_temperature_chunk)).unwrap()
-            }) { thread.join().unwrap(); });
+            {
+                // Boundary conditions: constant temperature (Dirichlet): T_boundary=0 except top: adiabatic dz(T)_boundary=0 (Neumann) using ghost points
+                let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[f32]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
+                    let specific_heat_capacity = 4000.; // c [J/(kg·K)]
+                    let mass_density = 1000.; // ρ [kg/m³]
+                    // dt(Q) = c ρ dt(T) : heat energy
+                    // dt(Q) = - dx(q): heat flow (positive outgoing)
+                    // => dt(T) = - 1/(cρ) dx(q)
+                    let thermal_conductivity = 0.5; // k [W/(m·K)]
+                    // q = -k∇T (Fourier conduction)
+                    // Finite difference cartesian first order laplacian
+                    let T = |dx,dy,dz| temperature[xyz{x: (x as i32+dx) as u32, y: (y as i32+dy) as u32, z: (z as i32+dz) as u32}];
+                    let dxxT = ( T(-1, 0, 0) - 2. * T(0, 0, 0) + T(1, 0, 0) ) / sq(δx);
+                    let dyyT = ( T(0, -1, 0) - 2. * T(0, 0, 0) + T(0, 1, 0) ) / sq(δx);
+                    let dzzT = ( T(0, 0, -1) - 2. * T(0, 0, 0) + T(0, 0, 1) ) / sq(δx);
+                    let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T)
+                    let thermal_diffusivity = thermal_conductivity / (specific_heat_capacity * mass_density); // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ))
+                    let dtT = thermal_diffusivity * thermal_conduction; // dt(T) = αΔT
+                    let δt = 0.1 / (thermal_diffusivity / sq(δx)); // Time step
+                    let C = thermal_diffusivity / sq(δx) * δt;
+                    assert!(C < 1./2., "{C}"); // Courant–Friedrichs–Lewy condition
+                    // Explicit time step (First order: Euler): T[t+1]  = T(t) + δt·dt(T)
+                    next_temperature_chunk[xyz{x, y, z: z-z0}] = T(0,0,0) + δt * dtT;
+                }}};
+                let mut next_temperature = next_temperature.as_mut();
+                let range = 1..size.z-1;
+                next_temperature.take_mut(range.start);
+                std::thread::scope(|s| for thread in std::array::from_fn::<_, threads, _>(move |thread| {
+                    let z0 = range.start + (range.end-range.start)*thread as u32/threads as u32;
+                    let z1 = range.start + (range.end-range.start)*(thread as u32+1)/threads as u32;
+                    let next_temperature_chunk = next_temperature.take_mut(z1-z0);
+                    std::thread::Builder::new().spawn_scoped(s, move || task(z0, z1, next_temperature_chunk)).unwrap()
+                }) { thread.join().unwrap(); });
+            }
+            for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}]; } } // Sets ghost points to temperature of below point
             let points = size.z*size.y*size.x;
             let elapsed = start.elapsed(); report.push(format!("{}M points {}ms {}ns", points/1000000, elapsed.as_millis(), elapsed.as_nanos()/(points as u128)));
         }
@@ -213,7 +220,7 @@ fn main() -> ui::Result {
     let mut next_temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
 
     let mut step = 0;
-    ui::run(&mut View(Image::zero(temperature.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+    ui::run(&mut View(Image::zero(xy{x: temperature.size.y, y: temperature.size.z-1})), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
         let report = next(temperature.as_mut(), next_temperature.as_mut());
         std::mem::swap(&mut temperature, &mut next_temperature);
 
@@ -223,7 +230,7 @@ fn main() -> ui::Result {
 
         let temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
         for image_y in 0..image.size.y { for image_x in 0..image.size.x {
-            image[xy{x: image_x, y: image_y}] = (0..temperature.size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: image_y}]).sum::<f32>();
+            image[xy{x: image_x, y: image_y}] = (0..temperature.size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<f32>();
         }}
 
         #[cfg(feature="avif")] if step%32 == 0 {
