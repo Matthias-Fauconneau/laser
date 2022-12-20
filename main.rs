@@ -3,19 +3,8 @@ fn main() -> ui::Result {
     #![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
     fn sq(x: f32) -> f32 { x*x }
 
-    #[derive(PartialEq)] struct Material {
-        absorption: f32, // μa [mm¯¹]
-        scattering: f32, // μs [mm¯¹]
-        anisotropy: f32, // g (mean cosine of the deflection angle) [Henyey-Greenstein]
-        #[allow(dead_code)] refractive_index: f32 // n
-    }
-    let ref air = Material{absorption: 0., scattering: 0., anisotropy: 1., refractive_index: 1.};
-    let ref bone = Material{absorption: 0.019, scattering: 7.800, anisotropy: 0.89, refractive_index: 1.37};
-    let ref cerebrospinal_fluid = Material{absorption: 0.004, scattering: 0.009, anisotropy: 0.89, refractive_index: 1.37};
-    let ref gray_matter = Material{absorption: 0.020, scattering: 9.00, anisotropy: 0.89, refractive_index: 1.37};
-    let ref white_matter = Material{absorption: 0.080, scattering: 40.9, anisotropy: 0.84, refractive_index: 1.37};
-    let material_list = [air, bone, cerebrospinal_fluid, gray_matter, white_matter];
-    let id = |material| material_list.iter().position(|&o| o == material).unwrap();
+    trait atomic_from_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
+    impl atomic_from_mut<f32> for AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
 
     use vector::{xyz, vec3};
     pub type uint3 = xyz<u32>;
@@ -27,6 +16,7 @@ fn main() -> ui::Result {
     impl<D> Volume<D> {
         #[track_caller] pub fn index(&self, xyz{x,y,z}: uint3) -> usize { assert!(x < self.size.x && y < self.size.y && z < self.size.z, "{x} {y} {z} {:?}", self.size); (((z * self.size.y + y) * self.size.x) + x) as usize }
         pub fn new<T>(size : size, data: D) -> Self where D:AsRef<[T]> { assert_eq!(data.as_ref().len(), (size.z*size.y*size.x) as usize); Self{data, size} }
+        pub fn as_mut<T>(&mut self) -> Volume<&mut [T]> where D:AsMut<[T]> { Volume{data: self.data.as_mut(), size: self.size} }
     }
 
     impl<T, D:std::ops::Deref<Target=[T]>> std::ops::Index<usize> for Volume<D> {
@@ -53,46 +43,14 @@ fn main() -> ui::Result {
         }
     }
 
-
     impl<T> Volume<Box<[T]>> {
         pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((size.z*size.y*size.x) as usize).collect()) }
     }
-    /*impl<T:num::Zero> Volume<Box<[T]>> {
-        pub fn zero(size: size) -> Self { Self::from_iter(size, std::iter::from_fn(|| Some(num::zero()))) }
-    }*/
     impl<T:Default> Volume<Box<[T]>> {
         pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::from_fn(|| Some(T::default()))) }
     }
 
-    let size = xyz{x: 513, y: 513, z: 512};
-    let z = |std::ops::Range{start, end}| (start*size.z/12)*size.y*size.x..(end*size.z/12)*size.y*size.x;
-    let material_volume = Volume::from_iter(size,
-                   z(0..5).map(|_| id(bone))
-        .chain(z(5..6).map(|_| id(cerebrospinal_fluid)))
-        .chain(z(6..7).map(|_| id(gray_matter)))
-        .chain(z(7..12).map(|_| id(white_matter)))
-    );
-    let δx = 1e-2 / material_volume.size.x as f32; // 1cm volume
-
-    #[derive(Clone,Copy)] struct Ray { position: vec3, direction: vec3 }
-    trait Source { fn sample(&self) -> Ray; }
-
-    struct Pencil {
-        position: vec3,
-        direction: vec3,
-    }
-    impl Source for Pencil {
-        fn sample(&self) -> Ray {let &Self{position, direction}=self; Ray{position, direction}}
-    }
-
-    let source = Pencil{position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5}, direction: xyz{x: 0., y: 0., z: 1.}};
-    //let wavelength = 650e-9;
-
-    use {atomic_float::AtomicF32, std::sync::atomic::Ordering::Relaxed};
-    let mut temperature : Volume<Box<[AtomicF32]>> = Volume::/*zero*/default(size);
-    let mut next_temperature : Volume<Box<[AtomicF32]>> = Volume::/*zero*/default(size);
-
-    use image::Image;
+    use {vector::xy, image::Image};
     fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
         let max = source.iter().copied().reduce(f32::max).unwrap();
         if max == 0. { return; }
@@ -103,51 +61,89 @@ fn main() -> ui::Result {
             }
         }
     }
-
-    use vector::xy;
     struct View(Image<Box<[f32]>>);
     impl ui::Widget for View { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) } }
 
-    let mut step = 0;
+    #[derive(PartialEq)] struct Material {
+        density: f32, // ρ [kg/m³]
+        // => refractive_index: f32 // n
+        specific_heat_capacity: f32, // c [J/(kg·K)]
+        thermal_conductivity: f32,  // k [W/(m·K)]
+        absorption: f32, // μa [m¯¹]
+        scattering: f32, // μs [m¯¹]
+    }
+    let anisotropy = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
+    let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / anisotropy;
+    let ref glue = Material{
+        density: 895.,
+        specific_heat_capacity: 3353.5 /*+ 5.245 * T*/,
+        thermal_conductivity: 0.3528 /*+ 0.001645 * T*/,
+        absorption: 519. /*- 0.5 * T*/,
+        scattering: scattering(1.),
+    };
+    let ref tissue = Material{
+        density: 1030.,
+        specific_heat_capacity: 3595.,
+        thermal_conductivity: 0.49,
+        absorption: 7.540 /*@750nm*/,
+        scattering: scattering(9.99),
+        //blood_volume_fraction: 0.0093,
+        //hemoglobin_oxygen_saturation: 0.8,
+        //water_volume_fraction: 0.5,
+        //scattering_parameter_a:  3670,
+        //scattering_parameter_b: 1.27,
+    };
+    // surface_emissivity: 0.95
+    let material_list = [glue, tissue];
+    let id = |material| material_list.iter().position(|&o| o == material).unwrap();
+
+    let size = xyz{x: 513, y: 513, z: 512};
+
+    let (height, material_volume) = if true {
+        let glue_height = 0.2e-2;
+        let tissue_height = 4e-2;
+        let height = glue_height + tissue_height;
+        let z = |start, end| (start*size.z as f32/height) as u32*size.y*size.x..(end*size.z as f32/height) as u32*size.y*size.x;
+        let material_volume = Volume::from_iter(size, z(0., glue_height).map(|_| id(glue)).chain(z(glue_height, height).map(|_| id(tissue))));
+        (height, material_volume)
+    } else {
+        let _height = 4e-2;
+        panic!("cancer: 5mm diameter sphere, 1mm+r below surface, absorbance = 1")
+    };
+
+    let δx = height / material_volume.size.x as f32;
+
+    let material_list = material_list.map(|&Material{density,specific_heat_capacity,thermal_conductivity,absorption,scattering}|
+        Material{density, specific_heat_capacity, thermal_conductivity, absorption: absorption*δx, scattering: scattering*δx}); // TODO
+
     use {rand_xoshiro::rand_core::SeedableRng, rand::Rng};
     let mut rng = rand_xoshiro::Xoshiro128Plus::seed_from_u64(0);
-    ui::run(&mut View(Image::zero(temperature.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+    let mut next = move |mut temperature: Volume<&mut [AtomicF32]>, mut next_temperature: Volume<&mut [AtomicF32]>| -> Vec<String>{
         let mut report = Vec::new();
         // Light propagation
         const samples : usize = 8192;
         const threads : usize = 8;
         let task = |mut rng : rand_xoshiro::Xoshiro128Plus|{
             for _ in 0..samples/threads {
-                let Ray{mut position, mut direction} = source.sample();
-                //let R = 1.; // m
-                //let particle_diameter = 100e-9; // collagen
-                //let rayleigh = f32::powi(PI,4)/4 * 1/(R*R) * f32::powi(diameter,6)/f32::pow(wavelength,4) ((n2-1)/(n2+2))^2
-                //let scatter = rayleigh * (1.+cos2)/2.;
-                //let polarizability = (n2-1)/(n2+2) * particle_radius; // Clausius-Mossotti (Lorentz-Lorenz)
-                //let scattering_cross_section = f32::powi(2.,7)*f32::powi(PI,5)/(3.*f32::powi(wavelength,4))*polarizability //Cs
-                //scattering_coefficient = N(a) x Cs(a)
-                // let number_density_of_particles //N
-                //let scattering_coefficient = number_density_of_particles * scattering_cross_section; // homogeneous (uniform a)
-                //let mut radiance = 1.;
+                let laser_position = xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5};
+                let laser_direction = xyz{x: 0., y: 0., z: 1.};
+                let mut position = laser_position; // TODO: Spotsize diameter: 0.8 cm (circular, top-hat or gaussian)
+                let mut direction = laser_direction; // TODO: low divergence
+                //let wavelength = 750e-9;
+                //let power = 1.5-2 W
+
                 loop {
                     {let xyz{x,y,z}=position; if x < 0. || x >= material_volume.size.x as f32 || y < 0. || y >= material_volume.size.y as f32 || z < 0. || z >= material_volume.size.z as f32 { break; }}
                     let id = material_volume[{let xyz{x,y,z}=position; xyz{x: x as u32, y: y as u32, z: z as u32}}];
-                    let Material{absorption,scattering,anisotropy: g,..} = material_list[id as usize];
-                    let length = 1./(material_volume.size.z as f32);
-                    if rng.gen::<f32>() < absorption * length {
-                        //assert!(image[{let xyz{y,z,..}=position; xy{x: y as u32, y: z as u32}}].fetch_add(1, Relaxed) != 0xFFFF);
+                    let Material{absorption,scattering,..} = material_list[id as usize];
+                    if rng.gen::<f32>() < absorption {
                         temperature[{let xyz{x,y,z}=position; xyz{x: x as u32, y: y as u32, z: z as u32}}].fetch_add(1., Relaxed);
                         break;
                     } // Absorption
-                    //radiance *= f32::exp(-absorption * length);
-                    //let minimum_intensity = 0.1;
-                    //if radiance < minimum_intensity { break; }
-                    //let optical_length = scattering * length;
-                    if rng.gen::<f32>() < scattering * length {
-                        //let R = optical_length;
+                    if rng.gen::<f32>() < scattering {
                         let ξ = rng.gen::<f32>();
-                        let cosθ = -1./(2.*g)*(1.+g*g-sq((1.-g*g)/(1.+g-2.*g*ξ)));// Henyey-Greenstein: 1/(4pi)*(1-g*g)/pow(1+g*g-2*g*cos, 2./3.)
-                        //let cosθ = {let u = -2.*f32::cbrt(2.*(ξ1-1.)+f32::sqrt(4.*sq(2.*ξ-1.)+1.)); u-1./u; // Rayleigh: 1/4pi*3/4*(1+cos²θ)
+                        let g = anisotropy;
+                        let cosθ = -1./(2.*g)*(1.+g*g-sq((1.-g*g)/(1.+g-2.*g*ξ))); // Henyey-Greenstein
                         let sinθ = 1. - cosθ*cosθ;
                         use std::f32::consts::PI;
                         let φ = 2.*PI*rng.gen::<f32>();
@@ -156,7 +152,7 @@ fn main() -> ui::Result {
                         let (T, B) = tangent_space(direction);
                         direction = sinθ*f32::cos(φ)*T + sinθ*f32::sin(φ)*B + cosθ*direction;
                     }
-                    position = position + /*length **/ direction;
+                    position = position + direction;
                 }
             }
         };
@@ -166,11 +162,8 @@ fn main() -> ui::Result {
             let thread = std::thread::Builder::new().spawn_scoped(s, move || task(task_rng)).unwrap();
             rng.jump();
             thread
-         }) { thread.join().unwrap(); });
+        }) { thread.join().unwrap(); });
         let elapsed = start.elapsed(); report.push(format!("{} samples {}ms {}μs", samples, elapsed.as_millis(), elapsed.as_micros()/(samples as u128)));
-
-        trait atomic_from_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
-        impl atomic_from_mut<f32> for AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
 
         {// Heat diffusion
             let start = std::time::Instant::now();
@@ -180,7 +173,7 @@ fn main() -> ui::Result {
 
             // Boundary conditions: constant temperature (Dirichlet): T_boundary=0
             let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[f32]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
-                let specific_heat_capacity = 4.; // c [kJ/(kg·K)]
+                let specific_heat_capacity = 4000.; // c [J/(kg·K)]
                 let mass_density = 1000.; // ρ [kg/m³]
                 // dt(Q) = c ρ dt(T) : heat energy
                 // dt(Q) = - dx(q): heat flow (positive outgoing)
@@ -212,23 +205,35 @@ fn main() -> ui::Result {
             let points = size.z*size.y*size.x;
             let elapsed = start.elapsed(); report.push(format!("{}M points {}ms {}ns", points/1000000, elapsed.as_millis(), elapsed.as_nanos()/(points as u128)));
         }
+        report
+    };
+
+    use {atomic_float::AtomicF32, std::sync::atomic::Ordering::Relaxed};
+    let mut temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
+    let mut next_temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
+
+    let mut step = 0;
+    ui::run(&mut View(Image::zero(temperature.size.yz())), &mut |View(ref mut image):&mut View| -> ui::Result<bool> {
+        let report = next(temperature.as_mut(), next_temperature.as_mut());
         std::mem::swap(&mut temperature, &mut next_temperature);
+
+        use itertools::Itertools;
+        println!("{step} {}", report.iter().format(" "));
+        step += 1;
 
         let temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
         for image_y in 0..image.size.y { for image_x in 0..image.size.x {
             image[xy{x: image_x, y: image_y}] = (0..temperature.size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: image_y}]).sum::<f32>();
         }}
 
-        use itertools::Itertools;
-        println!("{step} {}", report.iter().format(" "));
-        step += 1;
-        if step%32 == 0 {
+        #[cfg(feature="avif")] if step%32 == 0 {
             let mut target = Image::zero(image.size);
             rgb10(&mut target.as_mut(), image.as_ref());
             use ravif::*;
             let EncodedImage { avif_file, .. } = Encoder::new().encode_raw_planes_10_bit(target.size.x as usize, target.size.y as usize, target.iter().map(|rgb| [(rgb&0b1111111111) as u16, ((rgb>>10)&0b1111111111) as u16, (rgb>>20) as u16]), None::<[_; 0]>, rav1e::color::PixelRange::Full, MatrixCoefficients::Identity)?;
             std::fs::write(format!("{step}.avif"), avif_file)?;
         }
+
         Ok(true)
     })
 }
