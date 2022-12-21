@@ -64,7 +64,7 @@ fn main() -> ui::Result {
     struct View(Image<Box<[f32]>>);
     impl ui::Widget for View { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) } }
 
-    #[derive(PartialEq)] struct Material {
+    #[derive(PartialEq,Clone)] struct Material {
         density: f32, // ρ [kg/m³]
         specific_heat_capacity: f32, // c [J/(kg·K)]
         thermal_conductivity: f32,  // k [W/(m·K)]
@@ -86,13 +86,14 @@ fn main() -> ui::Result {
         thermal_conductivity: 0.49,
         absorption: 7.540, scattering: scattering(9.99), //@750nm
     };
+    let ref cancer = Material{absorption: 10., ..tissue.clone()};
     //panic!("{} {} {}", glue.absorption, tissue.absorption, glue.absorption/tissue.absorption);
-    let material_list = [glue, tissue];
+    let material_list = [glue, tissue, cancer];
     let id = |material| material_list.iter().position(|&o| o == material).unwrap();
 
     let size = xyz{x: 512, y: 512, z: 513};
 
-    let (height, material_volume) = if true {
+    let (height, material_volume) = if false {
         let glue_height = 0.2e-2;
         let tissue_height = 4e-2;
         let height = glue_height + tissue_height;
@@ -100,11 +101,24 @@ fn main() -> ui::Result {
         let material_volume = Volume::from_iter(size, z(0., glue_height).map(|_| id(glue)).chain(z(glue_height, height).map(|_| id(tissue))));
         (height, material_volume)
     } else {
-        let _height = 4e-2;
-        panic!("cancer: 5mm diameter sphere, 1mm+r below surface, absorbance = 1")
+        let height = 4e-2;
+        let mut material_volume = Volume::from_iter(size, std::iter::from_fn(|| Some(id(tissue))));
+        let diameter = 5e-3;
+        let center = diameter/2. + 1e-3;
+        for z in ((center-diameter/2.) * size.z as f32 / height) as u32 ..= ((center+diameter/2.) * size.z as f32 / height) as u32 {
+            for y in size.y/2-(diameter/2. * size.z as f32 / height) as u32 ..= size.y/2+(diameter/2. * size.z as f32 / height) as u32 {
+                for x in size.x/2-(diameter/2. * size.z as f32 / height) as u32 ..= size.x/2+(diameter/2. * size.z as f32 / height) as u32 {
+                    let p = xyz{x: x as f32,y: y as f32, z: z as f32};
+                    if vector::sq(p - xyz{x: size.x as f32 / 2., y: size.y as f32 / 2., z: center * size.z as f32 / height}) < sq(diameter/2. * size.z as f32 / height) {
+                        material_volume[xyz{x,y,z}] = id(cancer);
+                    }
+                }
+            }
+        }
+        (height, material_volume)
     };
 
-    let δx = height / material_volume.size.x as f32;
+    let δx = height / material_volume.size.z as f32;
 
     let material_list = material_list.map(|&Material{density,specific_heat_capacity,thermal_conductivity,absorption,scattering}|
         Material{density, specific_heat_capacity, thermal_conductivity, absorption: absorption*δx, scattering: scattering*δx}); // TODO
@@ -233,7 +247,7 @@ fn main() -> ui::Result {
             image[xy{x: image_x, y: image_y}] = (0..temperature.size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<f32>();
         }}
 
-        #[cfg(feature="avif")] if step%32 == 0 {
+        #[cfg(feature="avif")] if step%128 == 0 {
             let mut target = Image::zero(image.size);
             rgb10(&mut target.as_mut(), image.as_ref());
             use ravif::*;
