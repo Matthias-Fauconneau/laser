@@ -31,17 +31,17 @@ impl<D> std::ops::IndexMut<uint3> for Volume<D> where Self: std::ops::IndexMut<u
     fn index_mut(&mut self, i:uint3) -> &mut Self::Output { let i = self.index(i); &mut self[i] }
 }
 
-/*impl<'t, T> Volume<&'t mut [T]> {
+impl<'t, T> Volume<&'t mut [T]> {
     pub fn take_mut<'s>(&'s mut self, mid: u32) -> Volume<&'t mut[T]> {
         assert!(mid <= self.size.z);
         self.size.z -= mid;
         Volume{size: xyz{x: self.size.x, y: self.size.y, z: mid}, data: self.data.take_mut(..(mid*self.size.y*self.size.x) as usize).unwrap()}
     }
-}*/
+}
 
 impl<T> Volume<Box<[T]>> {
     pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((size.z*size.y*size.x) as usize).collect()) }
 }
 impl<T:Default> Volume<Box<[T]>> {
-    pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::from_fn(|| Some(T::default()))) }
+    pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::repeat_with(|| T::default())) }
 }

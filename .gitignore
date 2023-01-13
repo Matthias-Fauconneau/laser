@@ -1,2 +1,2 @@
-*.avif
 Cargo.lock
+out
