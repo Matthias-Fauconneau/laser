@@ -12,6 +12,7 @@ pub struct Volume<D> {
 impl<D> Volume<D> {
     #[track_caller] pub fn index(&self, xyz{x,y,z}: uint3) -> usize { assert!(x < self.size.x && y < self.size.y && z < self.size.z, "{x} {y} {z} {:?}", self.size); (((z * self.size.y + y) * self.size.x) + x) as usize }
     pub fn new<T>(size : size, data: D) -> Self where D:AsRef<[T]> { assert_eq!(data.as_ref().len(), (size.z*size.y*size.x) as usize); Self{data, size} }
+    pub fn as_ref<T>(&self) -> Volume<&[T]> where D:AsRef<[T]> { Volume{data: self.data.as_ref(), size: self.size} }
     pub fn as_mut<T>(&mut self) -> Volume<&mut [T]> where D:AsMut<[T]> { Volume{data: self.data.as_mut(), size: self.size} }
 }
 
