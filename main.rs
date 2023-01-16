@@ -215,14 +215,13 @@ fn main() -> ui::Result {
     let mut temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
     let mut next_temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
 
-    let mm = |x:u32| (x as f32)*δx*1e3;
     use {image::Image, view::{Plot, ImageView, Grid, write_image}};
 
-    let Iz_radius = 8;
+    let Iz_radius = (1e-3 / δx) as u32;
     let Tt_z = [1, 8, 16];
     let mut I0 = list(std::iter::repeat(0.).take((size.x/2-1) as usize));
-    println!("{}mm", mm(Iz_radius));
 
+    let mm = |x:u32| (x as f32)*δx*1e3;
     let Tt = Plot{keys: Box::from(Tt_z.map(|z| format!("{}mm", f32::round(mm(z)) as u32))), values: Box::from(Tt_z.map(|_| Vec::new()))};
     let Iz = Plot{keys: Box::from(["I(z)".to_owned()]), values: Box::from([Vec::new()])};
     let Ir = Plot{keys: Box::from(["I(r)".to_owned(),"I0(r)".to_owned()]), values: Box::from([Vec::new(),Vec::new()])};
@@ -232,8 +231,7 @@ fn main() -> ui::Result {
     ui::run(&mut Grid(Plots{Tt, Iz, Ir, Tyz}), &mut move |grid: &mut _| -> ui::Result<bool> {
         let _report = next(random, laser, (material_list, material_volume.as_ref()), Some(absorption.as_mut()), temperature.as_mut(), next_temperature.as_mut(), C);
         std::mem::swap(&mut temperature, &mut next_temperature);
-        //use itertools::Itertools;
-        //println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
+        //use itertools::Itertools; println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
         step += 1;
 
         // T(t) at z={probes}
@@ -290,7 +288,12 @@ fn main() -> ui::Result {
             Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<f32>();
         }}
 
-        if let 512 = step { write_image(format!("out/a={a},s={s},d={d},t={step}", a=f32::round(tissue.absorbance) as u32, s=f32::round(tissue.scattering) as u32, d=laser.diameter), grid); }
-        Ok(step <= 512)
+        let stop = 64;
+        if [stop].contains(&step) {
+            let path = format!("out/a={a},s={s},d={d},t={step}", a=f32::round(tissue.absorbance) as u32, s=f32::round(tissue.scattering) as u32, d=laser.diameter);
+            std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTyz: ({Tyz:?}, {:?})", Tyz.data)).unwrap();
+            write_image(path+".avif", grid);
+        }
+        Ok(step <= stop)
     })
 }
