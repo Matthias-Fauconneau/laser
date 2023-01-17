@@ -23,9 +23,9 @@ impl<T> ui::Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mu
 }}
 
 use ui::plot::list;
-#[derive(Debug)] pub struct Plot { pub keys: Box<[String]>, pub values: Box<[Vec<f32>]>, pub x_scale: f32 }
+#[derive(Debug)] pub struct Plot { pub title: &'static str, pub axis_label: xy<&'static str>, pub x_scale: f32, pub keys: Box<[String]>, pub values: Box<[Vec<f32>]> }
 impl ui::Widget for Plot { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) {
-    ui::Plot::new(&[&list(self.keys.iter().map(|s| s.as_ref()))], list((0..self.values[0].len()).map(|i| ((self.x_scale*(i as f32)) as f64, Box::from([list(self.values.iter().map(|values| values[i] as f64))])))).as_ref()).paint(target, size, offset)?;
+    ui::Plot::new(self.title.to_string(), self.axis_label.map(|s| s.to_string()), &[&list(self.keys.iter().map(|s| s.as_ref()))], list((0..self.values[0].len()).map(|i| ((self.x_scale*(i as f32)) as f64, Box::from([list(self.values.iter().map(|values| values[i] as f64))])))).as_ref()).paint(target, size, offset)?;
 } }
 
 use {vector::xy, image::Image};
