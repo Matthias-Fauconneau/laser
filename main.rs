@@ -221,10 +221,10 @@ fn main() -> ui::Result {
     let Tt_z = [1, 8, 16];
     let mut I0 = list(std::iter::repeat(0.).take((size.x/2-1) as usize));
 
-    let mm = |x:u32| (x as f32)*δx*1e3;
-    let Tt = Plot{keys: Box::from(Tt_z.map(|z| format!("{}mm", f32::round(mm(z)) as u32))), values: Box::from(Tt_z.map(|_| Vec::new()))};
-    let Iz = Plot{keys: Box::from(["I(z)".to_owned()]), values: Box::from([Vec::new()])};
-    let Ir = Plot{keys: Box::from(["I(r)".to_owned(),"I0(r)".to_owned()]), values: Box::from([Vec::new(),Vec::new()])};
+    let mm = δx*1e3;
+    let Tt = Plot{keys: Box::from(Tt_z.map(|z| format!("{}mm", f32::round(mm*(z as f32)) as u32))), values: Box::from(Tt_z.map(|_| Vec::new())), x_scale: δt};
+    let Iz = Plot{keys: Box::from(["I(z)".to_owned()]), values: Box::from([Vec::new()]), x_scale: mm};
+    let Ir = Plot{keys: Box::from(["I(r)".to_owned(),"I0(r)".to_owned()]), values: Box::from([Vec::new(),Vec::new()]), x_scale: mm};
     let Tyz = ImageView(Image::zero(xy{x: temperature.size.y, y: temperature.size.z-1}));
 
     derive_IntoIterator! { struct Plots { Tt: Plot, Iz: Plot, Ir: Plot, Tyz: ImageView } }
