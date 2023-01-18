@@ -64,6 +64,7 @@ impl Div<Quantity<0,2,0,0>> for Quantity<-1,2,0,0> { type Output = Quantity<-1,0
 impl Div<Quantity<0,-3,1,0>> for Quantity<-1,-1,1,0> { type Output = Quantity<-1,2,0,0>; } // DynamicViscosity/MassDensity=Diffusivity
 impl Div<Quantity<-2,2,1,-1>> for Quantity<-2,2,1,0> { type Output = Quantity<0,0,0,1>; } // Energy/HeatCapacity=Temperature
 impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,1,1,-1> { type Output = Quantity<-1,2,0,0>; } // ThermalConductivity/VolumetricHeatCapacity=Diffusivity
+impl Div<Quantity<0,2,0,0>> for Quantity<-3,2,1,0> { type Output = Quantity<-3,0,1,0>; } // Power/Area=Intensity
 
 impl<B:F32, const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<B> for Quantity<A0,A1,A2,A3> where Self:Div<B> {
     type Output = <Self as Div<B>>::Output;
@@ -111,7 +112,13 @@ macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:i
         impl NotUnitless for $quantity {}
         #[allow(dead_code,non_upper_case_globals)] pub const $unit : Unit<$quantity> = unit();
         impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f32 { self.unwrap() } }
-        impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, concat!("{}", stringify!($unit)), self.unwrap())
+        impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let log10 = f64::log10(self.unwrap() as f64);
+            let floor1000 = f64::floor(log10/3.); // submultiple
+            let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
+            let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };
+            let submultiple = ["n","µ","m","","k","M","G"][(3+(floor1000 as i8)) as usize];
+            write!(f, concat!("{}{}", stringify!($unit)), submagnitude, submultiple)
         } }
 } }
 
@@ -128,6 +135,7 @@ quantity_unit!([-1,2,0,0] m2_s Diffusivity);
 quantity_unit!([0,-3,1,0] kg_m3 MassDensity);
 quantity_unit!([-2,2,1,0] J Energy); //T⁻²L²M
 quantity_unit!([-3,2,1,0] W Power); // J/s
+quantity_unit!([-3,0,1,0] W_m2 Intensity);
 quantity_unit!([-2,2,1,-1] J_K HeatCapacity);
 quantity_unit!([-2,2,0,-1] J_K·kg SpecificHeatCapacity);
 quantity_unit!([-2,-1,1,-1] J_K·m3 VolumetricHeatCapacity);
