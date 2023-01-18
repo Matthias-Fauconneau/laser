@@ -24,18 +24,18 @@ fn main() -> ui::Result {
     let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / anisotropy;
     type DMaterial = self::Material<Dimensionalized>;
     let ref tissue = DMaterial{
-        mass_density: 1030. |kg_m3,
-        specific_heat_capacity: 3595. |J_K·kg,
-        thermal_conductivity: 0.49 |W_m·K,
-        absorption_coefficient: 7.540 |_m, scattering_coefficient: scattering(999. |_m), //@750nm
+        mass_density: 1030.|kg_m3,
+        specific_heat_capacity: 3595.|J_K·kg,
+        thermal_conductivity: 0.49|W_m·K,
+        absorption_coefficient: 7.540|_m, scattering_coefficient: scattering(999.|_m), //@750nm
     };
     let ref cancer = DMaterial{absorption_coefficient: 10. |_m, ..tissue.clone()};
-    let T = (273.15 + 36.85) |K;
+    let T = (273.15 + 36.85)|K;
     let ref glue = DMaterial{
-        mass_density: 895. |kg_m3,
-        specific_heat_capacity: dbg!((3353.5 |J_K·kg) + (5.245 |J_K2·kg) * T),
-        thermal_conductivity: dbg!((0.3528 |W_m·K) + (0.001645 |W_m·K2) * T),
-        absorption_coefficient: 15.84|_m/*519.|_m - 0.5 |_Km * T*/, scattering_coefficient: scattering(1. |_m),
+        mass_density: 895.|kg_m3,
+        specific_heat_capacity: (3353.5|J_K·kg) + (5.245|J_K2·kg) * T, // <~5000
+        thermal_conductivity: (0.3528|W_m·K) + (0.001645|W_m·K2) * T, // <~1
+        absorption_coefficient: 15.84|_m/*519.|_m - 0.5 |_Km * T*/, scattering_coefficient: scattering(1.|_m),
     };
     let material_list = [tissue, cancer, glue];
 
@@ -44,13 +44,13 @@ fn main() -> ui::Result {
     fn z(size: size, height: Length, start: Length, end: Length) -> std::ops::Range<u32> { map(size, height, start)*size.y*size.x .. map(size, height, end)*size.y*size.x }
     let (height, material_volume) : (Length,_) = match "tissue" {
         "tissue" => {
-            let height = 2e-2 |m;
+            let height = 2.|cm;
             let material_volume = Volume::from_iter(size, z(size, height, 0.|m, height).map(|_| id(tissue)));
             (height, material_volume)
         },
         "glue" => {
-            let glue_height = 0.2e-2 |m;
-            let tissue_height = 2e-2 |m;
+            let glue_height = 2.|mm;
+            let tissue_height = 2.|cm;
             let height = glue_height + tissue_height;
             let z = |start, end| z(size, height, start, end);
             let material_volume = Volume::from_iter(size, z(0.|m, glue_height).map(|_| id(glue)).chain(z(glue_height, height).map(|_| id(tissue))));
@@ -84,8 +84,8 @@ fn main() -> ui::Result {
     let specific_heat_capacity = 4000. |J_K·kg; // c
     let volumetric_heat_capacity : VolumetricHeatCapacity = mass_density * specific_heat_capacity; // J/K·m³
     let thermal_conductivity = 0.5 |W_m·K; // k
-    let thermal_diffusivity = dbg!(thermal_conductivity / volumetric_heat_capacity); // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) [m²/s]
-    let δt : Time = 0.1 / (thermal_diffusivity / sq(δx)); // Time step (s)
+    let thermal_diffusivity = thermal_conductivity / volumetric_heat_capacity; // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) ~ 0.1 mm²/s
+    let δt = 0.1 / (thermal_diffusivity / sq(δx)); // Time step ~ 20ms
 
     let C : Unitless = thermal_diffusivity / sq(δx) * δt;
     assert!(f32::from(C) <= 1./2., "{C}"); // Courant–Friedrichs–Lewy condition

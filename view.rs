@@ -41,7 +41,10 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
     }
 }
 pub struct ImageView(pub Image<Box<[f32]>>);
-impl ui::Widget for ImageView { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) } }
+impl ui::Widget for ImageView { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) {
+    image::fill(target, 0);
+    rgb10(target, self.0.as_ref()) }
+}
 
 //use image::Image;
 pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
