@@ -28,6 +28,7 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
             image::fill(target, 0);
         }
     }
+    fn event(&mut self, size: size, context: &mut ui::widget::EventContext, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 pub type VBox<T> = Linear<T>;
 
@@ -42,6 +43,7 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
             if let Some(widget) = widgets.next() { widget.paint(target, size, 0.into())?; } else { break; }
         }}
     }
+    fn event(&mut self, size: size, context: &mut ui::widget::EventContext, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
 use {vector::xy, image::Image};
@@ -68,17 +70,20 @@ impl Widget for ImageView {
     #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) }
 }
 
-pub struct Fill<T>(T);
+pub struct Fill<T>{ widget: T, fresh: bool }
+impl<T> Fill<T> { fn new(widget: T) -> Self { Self{widget, fresh: false} } }
 impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
-    image::fill(target, image::bgr::from(1.).into());
-    self.0.paint(target, size, offset)
+    if self.fresh { return Ok(()); } self.fresh = true;
+    image::fill(target, ui::background.into());
+    self.widget.paint(target, size, offset)
 }
-fn size(&mut self, size: ui::size) -> ui::size { self.0.size(size) }
+fn event(&mut self, _: size, _: &mut ui::EventContext, even_: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
+fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 }
 
 derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, pub image: ImageView } }
 pub type LabeledImage = VBox<LabelImage>;
-impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
+impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
 
 //use image::Image;
 pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
