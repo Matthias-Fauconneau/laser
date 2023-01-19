@@ -12,7 +12,7 @@ mod volume;
 mod view;
 fn main() -> ui::Result {
     #![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
-    use {num::sq, vector::{xy, xyz, vec3}, std::sync::atomic::{AtomicU16, Ordering::Relaxed}, atomic_float::AtomicF32, ui::plot::list, volume::{atomic_from_mut as _, size, Volume}};
+    use {num::sq, vector::{xy, xyz, vec3}, std::sync::atomic::{AtomicU16, Ordering::Relaxed}, atomic_float::{/*AtomicF32,*/AtomicF64}, ui::plot::list, volume::{atomic_from_mut as _, size, Volume}};
     use {rand::{Rng as Random, SeedableRng as SeedableRandom}, rand_xoshiro::Xoshiro128Plus as ParallelRandom};
     const threads : usize = 8;
 
@@ -21,7 +21,7 @@ fn main() -> ui::Result {
     let size = xyz{x: 257, y: 257, z: 129};
 
     const anisotropy : f32 = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
-    let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / anisotropy;
+    let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / (anisotropy as f64);
     type DMaterial = self::Material<Dimensionalized>;
     let ref tissue = DMaterial{
         mass_density: 1030.|kg_m3,
@@ -40,7 +40,7 @@ fn main() -> ui::Result {
     let material_list = [tissue, cancer, glue];
 
     let id = |material| material_list.iter().position(|&o| o == material).unwrap() as u8;
-    fn map(size: size, height: Length, x: Length) -> u32 { (f32::from(x/height)*(size.z as f32)) as u32 }
+    fn map(size: size, height: Length, x: Length) -> u32 { (f64::from(x/height)*(size.z as f64)) as u32 }
     fn z(size: size, height: Length, start: Length, end: Length) -> std::ops::Range<u32> { map(size, height, start)*size.y*size.x .. map(size, height, end)*size.y*size.x }
     let (height, material_volume) : (Length,_) = match "tissue" {
         "tissue" => {
@@ -78,7 +78,7 @@ fn main() -> ui::Result {
         _ => unreachable!()
     };
 
-    let δx : Length = height / material_volume.size.z as f32;
+    let δx : Length = height / material_volume.size.z as f64;
 
     let mass_density = 1000. |kg_m3; // ρ
     let specific_heat_capacity = 4000. |J_K·kg; // c
@@ -88,7 +88,7 @@ fn main() -> ui::Result {
     let δt = 0.1 / (thermal_diffusivity / sq(δx)); // Time step ~ 20ms
 
     let C : Unitless = thermal_diffusivity / sq(δx) * δt;
-    assert!(f32::from(C) <= 1./2., "{C}"); // Courant–Friedrichs–Lewy condition
+    assert!(f64::from(C) <= 1./2., "{C}"); // Courant–Friedrichs–Lewy condition
 
     let ref material_list = material_list.map(|&DMaterial{mass_density, specific_heat_capacity, thermal_conductivity, absorption_coefficient, scattering_coefficient}| {
         Material{mass_density, specific_heat_capacity, thermal_conductivity, absorption_coefficient: (absorption_coefficient*δx).into(), scattering_coefficient: (scattering_coefficient*δx).into()}
@@ -118,7 +118,7 @@ fn main() -> ui::Result {
             let direction = self.direction; // TODO: divergence
             (position, direction)
         }
-        fn sample_power(&self, samples_per_step: usize) -> Power { self.power / samples_per_step as f32 }
+        fn sample_power(&self, samples_per_step: usize) -> Power { self.power / samples_per_step as f64 }
         //peak_intensity = power * pi*sq(diameter)/4 / (sq(wavelength)*sq(focal_length)) // W/m²
     }
 
@@ -129,10 +129,12 @@ fn main() -> ui::Result {
         power: 1.|W,
     };
     const laser_samples_per_step : usize = 8192*4; // if ! samples << voxels: atomic add u16 energy, and then have a temperature+float conversion pass might be more efficient than atomic float
+    type float = f64;
+    type AtomicF = AtomicF64;
     fn light_propagation(ref mut random : &mut ParallelRandom, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                                            absorption: Option<&Volume<&mut [AtomicU16]>>, temperature: &Volume<&mut [AtomicF32]>) -> String {
+                                            absorption: Option<&Volume<&mut [AtomicU16]>>, temperature: &Volume<&mut [AtomicF]>) -> String {
         fn task(ref mut random : impl Random, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                        absorption: Option<&Volume<&mut [AtomicU16]>>, temperature: &Volume<&mut [AtomicF32]>) {
+                        absorption: Option<&Volume<&mut [AtomicU16]>>, temperature: &Volume<&mut [AtomicF]>) {
             for _ in 0..laser_samples_per_step/threads {
                 let (mut position, mut direction) = laser.sample(random);
 
@@ -183,16 +185,16 @@ fn main() -> ui::Result {
     }
 
     fn next(ref mut random : &mut ParallelRandom, (material_list, ref material_volume): (&[Material], Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                    absorption: Option<Volume<&mut [AtomicU16]>>, ref mut temperature: Volume<&mut [AtomicF32]>, mut next_temperature: Volume<&mut [AtomicF32]>) -> Vec<String> {
+                    absorption: Option<Volume<&mut [AtomicU16]>>, ref mut temperature: Volume<&mut [AtomicF]>, mut next_temperature: Volume<&mut [AtomicF]>) -> Vec<String> {
         let mut report = Vec::new();
         report.push( light_propagation(random, (material_list, material_volume), δx, δt, laser, absorption.as_ref(), temperature) );
         // Heat diffusion
         let start = std::time::Instant::now();
         let size = temperature.size;
-        let temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
-        let mut next_temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut next_temperature.data));
+        let temperature = Volume::new(size, AtomicF::get_mut_slice(&mut temperature.data));
+        let mut next_temperature = Volume::new(size, AtomicF::get_mut_slice(&mut next_temperature.data));
         { // Boundary conditions: constant temperature (Dirichlet): T_boundary=0 except top: adiabatic dz(T)_boundary=0 (Neumann) using ghost points
-            let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[f32]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
+            let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[float]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
                 let id = material_volume[xyz{x: x as u32, y: y as u32, z: z as u32}];
                 let Material{mass_density: density, specific_heat_capacity,thermal_conductivity,..} = material_list[id as usize];
                 let volumetric_heat_capacity : VolumetricHeatCapacity = density * specific_heat_capacity; // J/K·m³
@@ -231,37 +233,21 @@ fn main() -> ui::Result {
     let ref mut random = rand_xoshiro::Xoshiro128Plus::seed_from_u64(0);
 
     let mut absorption : Volume<Box<[AtomicU16]>> = Volume::default(size);
-    let mut temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
-    let mut next_temperature : Volume<Box<[AtomicF32]>> = Volume::default(size);
+    let mut temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
+    let mut next_temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
 
-    use {image::Image, view::{Plot, LabeledImage, Grid, write_image}};
+    use {image::Image, ui::Plot, view::{LabeledImage, Grid, write_image}};
 
     let Tt_z = [7, 14, 21];
     let Iz_radius = f32::from((1.|mm) / δx) as u32;
     let Ir_z = 2.|mm;
-    let mut I0 = list(std::iter::repeat(0.).take((size.x/2-1) as usize));
 
-    let Tt = Plot{
-        title: "Temperature over time for probes on the axis",
-        axis_label: xy{x: "Time ($s)", y: "ΔTemperature ($K)"},
-        x_scale: δt.unwrap(),
-        keys: Box::from(Tt_z.map(|z| ((z as f32)*δx).to_string())),
-        values: Box::from(Tt_z.map(|_| Vec::new()))
-    };
-    let Iz = Plot{
-        title: "Laser intensity over depth (on the axis)",
-        axis_label: xy{x: "Depth ($m)", y: "Intensity ($W/m²)"},
-        x_scale: δx.unwrap(),
-        keys: Box::from(["I(z)".to_string()]),
-        values: Box::from([Vec::new()])
-    };
-    let Ir = Plot{
-        title: "Laser intensity at the surface (radial plot)",
-        axis_label: xy{x: "Radius ($m)", y: "Intensity ($W/m²)"},
-        x_scale: δx.unwrap(),
-        keys: Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]),
-        values: Box::from([Vec::new(),Vec::new()])
-    };
+    //x_scale: δt.unwrap()
+    let Tt = Plot::new("Temperature over time for probes on the axis", xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| ((z as f64)*δx).to_string())));
+    //x_scale: δx.unwrap(),
+    let Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
+    //x_scale: δx.unwrap(),
+    let Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
 
     let Tyz = LabeledImage::new("Temperature over y,z (x projected by summing)", Image::zero(xy{x: temperature.size.y, y: temperature.size.z-1}));
 
@@ -274,15 +260,17 @@ fn main() -> ui::Result {
 
         // T(t) at z={probes}
         let Grid(Plots{Tt, Iz, Ir, Tyz}) = grid;
-        let temperature = Volume::new(size, AtomicF32::get_mut_slice(&mut temperature.data));
+        let temperature = Volume::new(size, AtomicF::get_mut_slice(&mut temperature.data));
+        Tt.x_values.push( δt.unwrap() * step as f64 );
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
-            Tt.values[i].push( temperature[p] );
+            Tt.sets[i].push( temperature[p] );
         }
 
         // axial: I(z)
         let absorption = Volume::new(size, AtomicU16::get_mut_slice(&mut absorption.data));
-        Iz.values[0] = (0..size.z).map(|z| {
+        Iz.x_values = list((0..size.z).map(|z| z as f64 * δx.unwrap())).into();
+        Iz.sets[0] = (0..size.z).map(|z| {
             let radius = Iz_radius;
             let mut sum = 0;
             let mut count = 0;
@@ -294,47 +282,52 @@ fn main() -> ui::Result {
                     }
                 }
             }
-            let power : Power = (sum as f32) * laser.sample_power(laser_samples_per_step);
-            let area : Area = count as f32 * δx * δx;
+            let power : Power = (sum as f64) * laser.sample_power(laser_samples_per_step);
+            let area : Area = count as f64 * δx * δx;
             let intensity : Intensity = power / area;
             intensity.unwrap()
         }).collect();
+        Iz.need_update();
 
         // radial: I(r)
         let Ir_z = f32::from(Ir_z / δx) as u32;
-        Ir.values[0] = (0..size.x/2-1).map(|radius| {
+        Ir.x_values = list((0..size.x/2-1).map(|r| (r as f64) * δx.unwrap())).into();
+        Ir.sets[0] = (0..size.x/2-1).map(|r| {
             let mut sum = 0;
             let mut count = 0;
-            for y in -((radius+1) as i32) ..= (radius+1) as i32 {
-                for x in -((radius+1) as i32)..= (radius+1) as i32 {
+            for y in -((r+1) as i32) ..= (r+1) as i32 {
+                for x in -((r+1) as i32)..= (r+1) as i32 {
                     let r2 = vector::sq(xy{x,y}) as u32;
-                    if sq(radius) <= r2 && r2 < sq(radius+1) {
+                    if sq(r) <= r2 && r2 < sq(r+1) {
                         sum += absorption[xyz{x: ((size.x/2) as i32+x) as u32, y: ((size.y/2) as i32+y) as u32, z: Ir_z}];
                         count += 1;
                     }
                 }
             }
-            let power : Power = (sum as f32) * laser.sample_power(laser_samples_per_step);
-            let area : Area = count as f32 * δx * δx;
+            let power : Power = (sum as f64) * laser.sample_power(laser_samples_per_step);
+            let area : Area = count as f64 * δx * δx;
             let intensity : Intensity = power / area;
             intensity.unwrap()
         }).collect();
-        for position in std::iter::repeat_with(|| { let (position, _) = laser.sample(random); position }).take((size.x*size.y) as usize) {
+        let ref mut I0 = Ir.sets[1];
+        if I0.is_empty() { *I0 = [0.].repeat((size.x/2-1) as usize); }
+        for position in std::iter::repeat_with(|| { let (position, _) = laser.sample(random); position }).take(laser_samples_per_step) {
             let xyz{x,y,..} = position;
             let xy{x,y} = xy{x: x-(size.x/2) as f32, y: y-(size.y/2) as f32};
             let r2 = vector::sq(xy{x,y}) ;
             if r2 < sq(size.x/2-1) as f32 {
-                I0[f32::sqrt(r2) as usize] += 1. / f32::sqrt(r2 as f32);
+                I0[f32::sqrt(r2) as usize] += 1.;// / f32::sqrt(r2 as f32); // Why?
             }
         }
-        let norm_Ir = Ir.values[0].iter().sum::<f32>();
-        let norm_I0 = I0.iter().sum::<f32>();
-        Ir.values[1] = list(I0.iter().map(|&I| I * norm_Ir / norm_I0)).into();
+        /*let norm_Ir = Ir.sets[0].iter().sum::<f64>();
+        let norm_I0 = I0.iter().sum::<f64>();
+        Ir.sets[1] = list(I0.iter().map(|&I| I * norm_Ir / norm_I0)).into();*/
+        Ir.need_update();
 
         // T(y,z) (x sum)
         let ref mut Tyz = Tyz.0.image.0;
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
-            Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<f32>();
+            Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<float>() as f32;
         }}
 
         let stop = 64;

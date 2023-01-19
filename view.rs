@@ -1,10 +1,5 @@
-/*macro_rules! impl_IntoIterator_for_tuple { ($($e:ident),*) => {
-impl<'t, $($e: Widget),*> IntoIterator for &'t mut ($($e),*) {
-    type Item = &'t mut dyn ui::Widget;
-    type IntoIter = std::array::IntoIter<Self::Item, ${count(e)} >;
-    fn into_iter(self) -> Self::IntoIter { [$( ${ignore(e)} ${index()} )*].into_iter() }
-}}}
-impl_IntoIterator_for_tuple!(A, B)*/
+use ui::{prelude::*, Widget, size, int2};
+
 #[macro_export] macro_rules! derive_IntoIterator { {pub struct $name:ident { $(pub $field_name:ident: $field_type:ty),*}} => {
     pub struct $name { $(pub $field_name: $field_type,)* }
     impl<'t> IntoIterator for &'t mut $name {
@@ -14,10 +9,9 @@ impl_IntoIterator_for_tuple!(A, B)*/
     }
 }}
 
-use ui::Widget;
 pub struct Linear<T>(pub T);
 impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
-    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, size: ui::size, _offset: ui::int2) {
+    #[throws] fn paint(&mut self, target: &mut ui::Target, size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
         //let start = std::time::Instant::now();
         let len = 2;
@@ -29,6 +23,11 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
             widget.paint(target, size, 0.into())?;
             pen += size.y;
         } else { break; }}
+        if pen < size.y {
+            let size = size-xy{x: 0, y: pen};
+            let ref mut target = target.slice_mut(xy{x: 0, y: pen}, size);
+            image::fill(target, 0);
+        }
         //let elapsed = start.elapsed();
         //println!("linear: {}ms", elapsed.as_millis());
     }
@@ -37,7 +36,7 @@ pub type VBox<T> = Linear<T>;
 
 pub struct Grid<T>(pub T);
 impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
-    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, size: ui::size, _offset: ui::int2) {
+    #[throws] fn paint(&mut self, target: &mut ui::Target, size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
         //let start = std::time::Instant::now();
         let (w, h) = (2, 2);
@@ -52,9 +51,15 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
 }
 
 /*use ui::plot::list;
-#[derive(Debug)] pub struct Plot { pub title: &'static str, pub axis_label: xy<&'static str>, pub x_scale: f32, pub keys: Box<[String]>, pub values: Box<[Vec<f32>]> }
-impl Widget for Plot { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
-    let values = list(self.values.iter().map(|values| list(values.iter().map(|&x| x as f64))));
+//#[derive(Debug)] pub struct Plot { pub title: &'static str, pub axis_label: xy<&'static str>, pub x_scale: f32, pub keys: Box<[String]>, plot: ui::Plot }
+#[derive(Debug)] pub struct Plot { plot: ui::Plot, x_scale: f32 }
+impl Plot {
+    fn new(pub title: &'static str, pub axis_label: xy<&'static str>, pub keys: Box<[String]>, pub x_scale: f32) -> Self {
+        Self{plot: ui::Plot::new(title, axis_label, keys) }
+    }
+}
+impl Widget for Plot { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result { self.plot.paint(target,size,offset) } }*/
+    /*let values = list(self.values.iter().map(|values| list(values.iter().map(|&x| x as f64))));
     ui::Plot::new(self.title, self.axis_label, &list(self.keys.iter().map(|s| s.as_ref())), &list((0..self.values[0].len()).map(|i| (self.x_scale*(i as f32)) as f64)), &list(values.iter().map(|values| values.as_ref()))).paint(target, size, offset)
 } }*/
 
@@ -73,9 +78,11 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
 
 type ImageF = Image<Box<[f32]>>;
 pub struct ImageView(pub ImageF);
-impl Widget for ImageView { #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) {
-    //image::fill(target, 0);
-    rgb10(target, self.0.as_ref()) }
+impl Widget for ImageView {
+    fn size(&mut self, size: size) -> size {
+
+}
+    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) }
 }
 
 pub struct Fill<T>(T);

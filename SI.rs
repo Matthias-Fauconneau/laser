@@ -1,17 +1,17 @@
 /// Quantities and units operators
 
 pub trait F32 {
-    fn unwrap(self) -> f32;
-    fn wrap(value : f32) -> Self;
+    fn unwrap(self) -> f64;
+    fn wrap(value : f64) -> Self;
 }
 
-#[derive(PartialEq,Clone,Copy,Debug)] pub struct Quantity<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32>(f32);
+#[derive(PartialEq,Clone,Copy,Debug)] pub struct Quantity<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32>(f64);
 /*impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::fmt::Display for Quantity<A0,A1,A2,A3> { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{:?}", self)
 } }*/
 impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> F32 for Quantity<A0,A1,A2,A3>{
-    fn unwrap(self) -> f32 { self.0 }
-    fn wrap(value : f32) -> Self { Self(value) }
+    fn unwrap(self) -> f64 { self.0 }
+    fn wrap(value : f64) -> Self { Self(value) }
 }
 
 impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Add for Quantity<A0,A1,A2,A3> {
@@ -26,7 +26,7 @@ impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::S
 
 pub struct Unit<Q>(std::marker::PhantomData<Q>);
 pub const fn unit<Q>() -> Unit<Q> { Unit(std::marker::PhantomData) }
-impl<Q:F32> std::ops::BitOr<Unit<Q>> for f32 { type Output = Q; fn bitor(self, _: Unit<Q>) -> Self::Output { Q::wrap(self) } }
+impl<Q:F32> std::ops::BitOr<Unit<Q>> for f64 { type Output = Q; fn bitor(self, _: Unit<Q>) -> Self::Output { Q::wrap(self) } }
 
 // quantity · quantity
 pub trait Mul<Q> { type Output : F32; }
@@ -72,46 +72,47 @@ impl<B:F32, const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std:
 }
 
 pub type Unitless = Quantity<0,0,0,0>;
-impl From<Unitless> for f32 { fn from(v: Unitless) -> Self { v.unwrap() } }
+impl From<Unitless> for f64 { fn from(v: Unitless) -> Self { v.unwrap() } }
+impl From<Unitless> for f32 { fn from(v: Unitless) -> Self { v.unwrap() as f32 } }
 impl std::fmt::Display for Unitless { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.unwrap()) } }
 
 // unitless · quantity
-impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<Quantity<A0,A1,A2,A3>> for f32 where Quantity<A0,A1,A2,A3>:NotUnitless {
+impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<Quantity<A0,A1,A2,A3>> for f64 where Quantity<A0,A1,A2,A3>:NotUnitless {
     type Output = Quantity<A0,A1,A2,A3>;
     fn mul(self, b: Quantity<A0,A1,A2,A3>) -> Self::Output { Unitless::wrap(self)*b }
 }
 
 // quantity · unitless
-impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<f32> for Quantity<A0,A1,A2,A3> where Quantity<A0,A1,A2,A3>:NotUnitless {
+impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<f64> for Quantity<A0,A1,A2,A3> where Quantity<A0,A1,A2,A3>:NotUnitless {
     type Output = Quantity<A0,A1,A2,A3>;
-    fn mul(self, b: f32) -> Self::Output { self*Unitless::wrap(b) }
+    fn mul(self, b: f64) -> Self::Output { self*Unitless::wrap(b) }
 }
 
 // quantity / unitless
-impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<f32> for Quantity<A0,A1,A2,A3> where Self:NotUnitless {
+impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<f64> for Quantity<A0,A1,A2,A3> where Self:NotUnitless {
     type Output = Self;
-    fn div(self, b: f32) -> Self { self/Unitless::wrap(b) }
+    fn div(self, b: f64) -> Self { self/Unitless::wrap(b) }
 }
 
 // unitless / quantity
-impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<Quantity<A0,A1,A2,A3>> for f32 where Unitless:Div<Quantity<A0,A1,A2,A3>> {
+impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<Quantity<A0,A1,A2,A3>> for f64 where Unitless:Div<Quantity<A0,A1,A2,A3>> {
     type Output = <Unitless as Div<Quantity<A0,A1,A2,A3>>>::Output;
     fn div(self, b: Quantity<A0,A1,A2,A3>) -> Self::Output { Unitless::wrap(self)/b }
 }
 
-// f32 · unitless
-impl std::ops::Mul<Unitless> for f32 { type Output = f32; fn mul(self, b: Unitless) -> Self::Output { self*b.unwrap() } }
-//  unitless · f32
-impl std::ops::Mul<f32> for Unitless { type Output = f32; fn mul(self, b: f32) -> Self::Output { self.unwrap()*b } }
-// unitless / f32
-impl std::ops::Div<f32> for Unitless { type Output = f32; fn div(self, b: f32) -> Self::Output { self.unwrap()/b } }
+// f64 · unitless
+impl std::ops::Mul<Unitless> for f64 { type Output = f64; fn mul(self, b: Unitless) -> Self::Output { self*b.unwrap() } }
+//  unitless · f64
+impl std::ops::Mul<f64> for Unitless { type Output = f64; fn mul(self, b: f64) -> Self::Output { self.unwrap()*b } }
+// unitless / f64
+impl std::ops::Div<f64> for Unitless { type Output = f64; fn div(self, b: f64) -> Self::Output { self.unwrap()/b } }
 
 pub trait NotUnitless {}
 macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:ident  ) => {
         #[allow(non_camel_case_types)] pub type $quantity = Quantity<$($dimensions),+>;
         impl NotUnitless for $quantity {}
         #[allow(dead_code,non_upper_case_globals)] pub const $unit : Unit<$quantity> = unit();
-        impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f32 { self.unwrap() } }
+        impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f64 { self.unwrap() } }
         impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let log10 = f64::log10(self.unwrap() as f64);
             let floor1000 = f64::floor(log10/3.); // submultiple
@@ -151,11 +152,11 @@ quantity_unit!([-3,1,1,-2] W_m·K2 ThermalConductivity_K);
 
 pub struct CentiUnit<Q>(std::marker::PhantomData<Q>);
 pub const fn centi_unit<Q>() -> CentiUnit<Q> { CentiUnit(std::marker::PhantomData) }
-impl<Q:F32> std::ops::BitOr<CentiUnit<Q>> for f32 { type Output = Q; fn bitor(self, _: CentiUnit<Q>) -> Self::Output { Q::wrap(self*1e-2) } }
+impl<Q:F32> std::ops::BitOr<CentiUnit<Q>> for f64 { type Output = Q; fn bitor(self, _: CentiUnit<Q>) -> Self::Output { Q::wrap(self*1e-2) } }
 #[allow(dead_code,non_upper_case_globals)] pub const cm : CentiUnit<Length> = centi_unit();
 pub struct MilliUnit<Q>(std::marker::PhantomData<Q>);
 pub const fn milli_unit<Q>() -> MilliUnit<Q> { MilliUnit(std::marker::PhantomData) }
-impl<Q:F32> std::ops::BitOr<MilliUnit<Q>> for f32 { type Output = Q; fn bitor(self, _: MilliUnit<Q>) -> Self::Output { Q::wrap(self*1e-3) } }
+impl<Q:F32> std::ops::BitOr<MilliUnit<Q>> for f64 { type Output = Q; fn bitor(self, _: MilliUnit<Q>) -> Self::Output { Q::wrap(self*1e-3) } }
 #[allow(dead_code,non_upper_case_globals)] pub const mm : MilliUnit<Length> = milli_unit();
 
 pub trait System { type Scalar<T: PartialEq+Clone> : PartialEq+Clone; }

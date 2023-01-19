@@ -1,6 +1,7 @@
 #![allow(non_camel_case_types)]
 pub trait atomic_from_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
 impl atomic_from_mut<f32> for atomic_float::AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
+impl atomic_from_mut<f64> for atomic_float::AtomicF64 { fn get_mut_slice(this: &mut [Self]) -> &mut [f64] { unsafe { &mut *(this as *mut [Self] as *mut [f64]) } } }
 
 use vector::xyz;
 pub type uint3 = xyz<u32>;
