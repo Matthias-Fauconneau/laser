@@ -16,12 +16,13 @@ impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> F32 for Qua
 
 impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Add for Quantity<A0,A1,A2,A3> {
     type Output = Self;
-    fn add(self, b: Self) -> Self::Output { Self::Output::wrap(self.unwrap().add(b.unwrap())) }
+    fn add(self, b: Self) -> Self::Output { Self(self.0.add(b.0)) }
 }
+impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::AddAssign for Quantity<A0,A1,A2,A3> { fn add_assign(&mut self, b: Self) { self.0.add_assign(b.0); } }
 
 impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Sub for Quantity<A0,A1,A2,A3> {
     type Output = Self;
-    fn sub(self, b: Self) -> Self::Output { Self::Output::wrap(self.unwrap().sub(b.unwrap())) }
+    fn sub(self, b: Self) -> Self::Output { Self(self.0.sub(b.0)) }
 }
 
 pub struct Unit<Q>(std::marker::PhantomData<Q>);
@@ -49,7 +50,7 @@ impl Mul<Quantity<-3,2,1,0>> for Quantity<1,0,0,0> { type Output = Quantity<-2,2
 
 impl<B : F32, const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<B> for Quantity<A0,A1,A2,A3> where Self:Mul<B> {
     type Output = <Self as Mul<B>>::Output;
-    fn mul(self, b: B) -> Self::Output { Self::Output::wrap(self.unwrap()*b.unwrap()) }
+    fn mul(self, b: B) -> Self::Output { Self::Output::wrap(self.0*b.unwrap()) }
 }
 
 // quantity / quantity
@@ -68,13 +69,13 @@ impl Div<Quantity<0,2,0,0>> for Quantity<-3,2,1,0> { type Output = Quantity<-3,0
 
 impl<B:F32, const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Div<B> for Quantity<A0,A1,A2,A3> where Self:Div<B> {
     type Output = <Self as Div<B>>::Output;
-    fn div(self, b: B) -> Self::Output { Self::Output::wrap(self.unwrap()/b.unwrap()) }
+    fn div(self, b: B) -> Self::Output { Self::Output::wrap(self.0/b.unwrap()) }
 }
 
 pub type Unitless = Quantity<0,0,0,0>;
-impl From<Unitless> for f64 { fn from(v: Unitless) -> Self { v.unwrap() } }
-impl From<Unitless> for f32 { fn from(v: Unitless) -> Self { v.unwrap() as f32 } }
-impl std::fmt::Display for Unitless { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.unwrap()) } }
+impl From<Unitless> for f64 { fn from(v: Unitless) -> Self { v.0 } }
+impl From<Unitless> for f32 { fn from(v: Unitless) -> Self { v.0 as f32 } }
+impl std::fmt::Display for Unitless { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}", self.0) } }
 
 // unitless · quantity
 impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::Mul<Quantity<A0,A1,A2,A3>> for f64 where Quantity<A0,A1,A2,A3>:NotUnitless {
@@ -101,20 +102,20 @@ impl<const A0 : i32, const A1 : i32, const A2 : i32, const A3 : i32> std::ops::D
 }
 
 // f64 · unitless
-impl std::ops::Mul<Unitless> for f64 { type Output = f64; fn mul(self, b: Unitless) -> Self::Output { self*b.unwrap() } }
+impl std::ops::Mul<Unitless> for f64 { type Output = f64; fn mul(self, b: Unitless) -> Self::Output { self*b.0 } }
 //  unitless · f64
-impl std::ops::Mul<f64> for Unitless { type Output = f64; fn mul(self, b: f64) -> Self::Output { self.unwrap()*b } }
+impl std::ops::Mul<f64> for Unitless { type Output = f64; fn mul(self, b: f64) -> Self::Output { self.0*b } }
 // unitless / f64
-impl std::ops::Div<f64> for Unitless { type Output = f64; fn div(self, b: f64) -> Self::Output { self.unwrap()/b } }
+impl std::ops::Div<f64> for Unitless { type Output = f64; fn div(self, b: f64) -> Self::Output { self.0/b } }
 
 pub trait NotUnitless {}
 macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:ident  ) => {
         #[allow(non_camel_case_types)] pub type $quantity = Quantity<$($dimensions),+>;
         impl NotUnitless for $quantity {}
         #[allow(dead_code,non_upper_case_globals)] pub const $unit : Unit<$quantity> = unit();
-        impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f64 { self.unwrap() } }
+        impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f64 { self.0 } }
         impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let log10 = f64::log10(self.unwrap() as f64);
+            let log10 = f64::log10(self.0 as f64);
             let floor1000 = f64::floor(log10/3.); // submultiple
             let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
             let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };

@@ -77,7 +77,7 @@ impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target,
     image::fill(target, ui::background.into());
     self.widget.paint(target, size, offset)
 }
-fn event(&mut self, _: size, _: &mut ui::EventContext, even_: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
+fn event(&mut self, _: size, _: &mut ui::EventContext, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
 fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 }
 
@@ -85,7 +85,7 @@ derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, 
 pub type LabeledImage = VBox<LabelImage>;
 impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
 
-//use image::Image;
+/*//use image::Image;
 pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
     #[cfg(not(feature="avif"))] println!("Built without AVIF support: {} {}", path.as_ref().display(), image.size);
     #[cfg(feature="avif")] {
@@ -103,4 +103,4 @@ pub fn write_image(path: impl AsRef<std::path::Path>, view: &mut impl Widget) {
     let size = target.size;
     view.paint(&mut target.as_mut(), size, 0.into()).unwrap();
     write_avif(path, target);
-}
+}*/
