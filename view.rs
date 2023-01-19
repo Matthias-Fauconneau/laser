@@ -1,4 +1,4 @@
-use ui::{prelude::*, Widget, size, int2};
+use ui::{prelude::*, Widget, size, int2, EventContext};
 
 #[macro_export] macro_rules! derive_IntoIterator { {pub struct $name:ident { $(pub $field_name:ident: $field_type:ty),*}} => {
     pub struct $name { $(pub $field_name: $field_type,)* }
@@ -85,7 +85,7 @@ derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, 
 pub type LabeledImage = VBox<LabelImage>;
 impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
 
-/*//use image::Image;
+//use image::Image;
 pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
     #[cfg(not(feature="avif"))] println!("Built without AVIF support: {} {}", path.as_ref().display(), image.size);
     #[cfg(feature="avif")] {
@@ -101,6 +101,7 @@ pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
 pub fn write_image(path: impl AsRef<std::path::Path>, view: &mut impl Widget) {
     let mut target = Image::zero(xy{x: 3840, y: 2400});
     let size = target.size;
+    view.event(size, &mut EventContext{modifiers_state: Default::default(), cursor: None}, &ui::Event::Stale).unwrap();
     view.paint(&mut target.as_mut(), size, 0.into()).unwrap();
     write_avif(path, target);
-}*/
+}

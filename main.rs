@@ -239,7 +239,7 @@ fn main() -> ui::Result {
     let mut temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
     let mut next_temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
 
-    use {image::Image, ui::Plot, view::{LabeledImage, Grid/*, write_image*/}};
+    use {image::Image, ui::Plot, view::{LabeledImage, Grid, write_image}};
 
     let Tt_z = [7, 14, 21];
     let Iz_radius = f32::from((1.|mm) / δx) as u32;
@@ -337,12 +337,12 @@ fn main() -> ui::Result {
             Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<float>() as f32;
         }}
 
-        /*let stop = 64;
+        let stop = 64;
         if [stop].contains(&step) {
             let path = format!("out/a={a},s={s},d={d},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
             std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTyz: ({Tyz:?}, {:?})", Tyz.data)).unwrap();
             write_image(path+".avif", grid);
-        }*/
-        Ok(step <= 128*8)
+        }
+        Ok(step <= stop)
     })
 }
