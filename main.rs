@@ -305,7 +305,7 @@ fn main() -> ui::Result {
                 }
             }
             let power : Power = (sum as f64) * laser.sample_power(laser_samples_per_step);
-            let area : Area = count as f64 * δx * δx;
+            let area : Area = count as f64 * δx * δx; // Ring
             let intensity : Intensity = power / area;
             intensity.unwrap()
         }).collect();
@@ -314,10 +314,12 @@ fn main() -> ui::Result {
         for position in std::iter::repeat_with(|| { let (position, _) = laser.sample(random); position }).take(laser_samples_per_step) {
             let xyz{x,y,..} = position;
             let xy{x,y} = xy{x: x-(size.x/2) as f32, y: y-(size.y/2) as f32};
-            let r2 = vector::sq(xy{x,y}) ;
-            if r2 < sq(size.x/2-1) as f32 {
-                I0[f32::sqrt(r2) as usize] += 1.;// / f32::sqrt(r2 as f32); // Why?
-            }
+            let r = f64::sqrt(vector::sq(xy{x,y}) as f64);
+            let power : Power = laser.sample_power(laser_samples_per_step);
+            let area : Area = δx * r * δx; // Ring
+            let intensity : Intensity = power / area;
+            let r = r as usize;
+            if r < I0.len() { I0[r] += intensity.unwrap(); }
         }
         /*let norm_Ir = Ir.sets[0].iter().sum::<f64>();
         let norm_I0 = I0.iter().sum::<f64>();

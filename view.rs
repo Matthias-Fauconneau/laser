@@ -13,7 +13,6 @@ pub struct Linear<T>(pub T);
 impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
     #[throws] fn paint(&mut self, target: &mut ui::Target, size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
-        //let start = std::time::Instant::now();
         let len = 2;
         let mut pen = 0;
         for _ in 0..len { if let Some(widget) = widgets.next() {
@@ -28,8 +27,6 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
             let ref mut target = target.slice_mut(xy{x: 0, y: pen}, size);
             image::fill(target, 0);
         }
-        //let elapsed = start.elapsed();
-        //println!("linear: {}ms", elapsed.as_millis());
     }
 }
 pub type VBox<T> = Linear<T>;
@@ -38,30 +35,14 @@ pub struct Grid<T>(pub T);
 impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
     #[throws] fn paint(&mut self, target: &mut ui::Target, size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
-        //let start = std::time::Instant::now();
         let (w, h) = (2, 2);
         for y in 0..h { for x in 0..w {
             let ref mut target = target.slice_mut(xy{x: x*size.x/w, y: y*size.y/h}, size/xy{x: w, y: h});
             let size = target.size;
             if let Some(widget) = widgets.next() { widget.paint(target, size, 0.into())?; } else { break; }
         }}
-        //let elapsed = start.elapsed();
-        //println!("plot: {}ms", elapsed.as_millis());
     }
 }
-
-/*use ui::plot::list;
-//#[derive(Debug)] pub struct Plot { pub title: &'static str, pub axis_label: xy<&'static str>, pub x_scale: f32, pub keys: Box<[String]>, plot: ui::Plot }
-#[derive(Debug)] pub struct Plot { plot: ui::Plot, x_scale: f32 }
-impl Plot {
-    fn new(pub title: &'static str, pub axis_label: xy<&'static str>, pub keys: Box<[String]>, pub x_scale: f32) -> Self {
-        Self{plot: ui::Plot::new(title, axis_label, keys) }
-    }
-}
-impl Widget for Plot { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result { self.plot.paint(target,size,offset) } }*/
-    /*let values = list(self.values.iter().map(|values| list(values.iter().map(|&x| x as f64))));
-    ui::Plot::new(self.title, self.axis_label, &list(self.keys.iter().map(|s| s.as_ref())), &list((0..self.values[0].len()).map(|i| (self.x_scale*(i as f32)) as f64)), &list(values.iter().map(|values| values.as_ref()))).paint(target, size, offset)
-} }*/
 
 use {vector::xy, image::Image};
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
@@ -80,8 +61,10 @@ type ImageF = Image<Box<[f32]>>;
 pub struct ImageView(pub ImageF);
 impl Widget for ImageView {
     fn size(&mut self, size: size) -> size {
-
-}
+        let ref source = self.0;
+        let (num, den) = if source.size.x*size.y > source.size.y*size.x { (source.size.x, size.x) } else { (source.size.y, size.y) };
+        xy{x: std::cmp::min(source.size.x*den/num, size.x), y: std::cmp::min(source.size.y*den/num, size.y)}
+    }
     #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) }
 }
 
