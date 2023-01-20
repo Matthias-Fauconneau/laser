@@ -1,4 +1,4 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut)]#![allow(confusable_idents)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods)]#![allow(confusable_idents)]
 #[allow(non_snake_case)] mod SI; use SI::*;
 #[derive(PartialEq,Clone)] struct Material<S: System> {
     mass_density: MassDensity, // ρ [kg/m³]
@@ -12,7 +12,7 @@ mod volume;
 mod view;
 fn main() -> ui::Result {
     #![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
-    use {num::sq, vector::{xy, xyz, vec3}, std::sync::atomic::{AtomicU32, Ordering::Relaxed}, atomic_float::AtomicF64, ui::plot::list, volume::{atomic_from_mut as _, size, Volume}};
+    use {num::sq, vector::{xy, xyz, vec3}, std::sync::atomic::{AtomicU32, Ordering::Relaxed}, atomic_float::AtomicF64, ui::plot::list, volume::{size, Volume}};
     use {rand::{Rng as Random, SeedableRng as SeedableRandom}, rand_xoshiro::Xoshiro128Plus as ParallelRandom};
     const threads : usize = 8;
 
@@ -132,9 +132,9 @@ fn main() -> ui::Result {
     type float = f64;
     type AtomicF = AtomicF64;
     fn light_propagation(ref mut random : &mut ParallelRandom, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                                            intensity: Option<&Volume<&mut [AtomicU32]>>, temperature: &Volume<&mut [AtomicF]>) -> String {
+                                            intensity: &Option<Volume<&mut [AtomicU32]>>, temperature: &Volume<&mut [AtomicF]>) -> String {
         fn task(ref mut random : impl Random, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                        intensity: Option<&Volume<&mut [AtomicU32]>>, temperature: &Volume<&mut [AtomicF]>) {
+                        intensity: &Option<Volume<&mut [AtomicU32]>>, temperature: &Volume<&mut [AtomicF]>) {
             for _ in 0..laser_samples_per_step/threads {
                 let (mut position, mut direction) = laser.sample(random);
 
@@ -186,16 +186,11 @@ fn main() -> ui::Result {
         format!("{} samples {}ms {}μs", laser_samples_per_step, elapsed.as_millis(), elapsed.as_micros()/(laser_samples_per_step as u128))
     }
 
-    fn next(ref mut random : &mut ParallelRandom, (material_list, ref material_volume): (&[Material], Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
-                    intensity: Option<Volume<&mut [AtomicU32]>>, ref mut temperature: Volume<&mut [AtomicF]>, mut next_temperature: Volume<&mut [AtomicF]>) -> Vec<String> {
-        let mut report = Vec::new();
-        report.push( light_propagation(random, (material_list, material_volume), δx, δt, laser, intensity.as_ref(), temperature) );
-        // Heat diffusion
+    fn heat_diffusion((material_list, ref material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time,
+                    ref temperature: Volume<&[float]>, mut next_temperature: Volume<&mut [float]>) -> String {
         let start = std::time::Instant::now();
         let size = temperature.size;
-        let temperature = Volume::new(size, AtomicF::get_mut_slice(&mut temperature.data));
-        let mut next_temperature = Volume::new(size, AtomicF::get_mut_slice(&mut next_temperature.data));
-        { // Boundary conditions: constant temperature (Dirichlet): T_boundary=0 except top: adiabatic dz(T)_boundary=0 (Neumann) using ghost points
+        {
             let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[float]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
                 let id = material_volume[xyz{x: x as u32, y: y as u32, z: z as u32}];
                 let Material{mass_density: density, specific_heat_capacity,thermal_conductivity,..} = material_list[id as usize];
@@ -225,10 +220,23 @@ fn main() -> ui::Result {
                 std::thread::Builder::new().spawn_scoped(s, move || task(z0, z1, next_temperature_chunk)).unwrap()
             }) { thread.join().unwrap(); });
         }
-        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}]; } } // Sets ghost points to temperature of below point
-        let points = size.z*size.y*size.x;
-        let elapsed = start.elapsed(); report.push(format!("{}M points {}ms {}ns", points/1000000, elapsed.as_millis(), elapsed.as_nanos()/(points as u128)));
-        report
+        // Boundary conditions: adiabatic dz(T)_boundary=0 (Neumann) using ghost points
+        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: 0, y, z}] = next_temperature[xyz{x: 1, y, z}]; } } // Left: Sets ghost points to temperature of point beside
+        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: size.x-1, y, z}] = next_temperature[xyz{x: size.x-2, y, z}]; } } // Right: Sets ghost points to temperature of point beside
+        for z in 0..size.z { for x in 0..size.x { next_temperature[xyz{x, y : 0, z}] = next_temperature[xyz{x, y: 1, z}]; } } // Front: Sets ghost points to temperature of point behind
+        for z in 0..size.z { for x in 0..size.x { next_temperature[xyz{x, y: size.y-1, z}] = next_temperature[xyz{x, y: size.y-2, z}]; } } // Back: Sets ghost points to temperature of point before
+        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}]; } } // Top: Sets ghost points to temperature of point below
+        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: size.z-1}] = next_temperature[xyz{x, y, z: size.z-2}]; } } // Bottom: Sets ghost points to temperature of point above
+        let elapsed = start.elapsed();
+        let points = size.z*size.y*size.x; format!("{}M points {}ms {}ns", points/1000000, elapsed.as_millis(), elapsed.as_nanos()/(points as u128))
+    }
+
+    fn next(ref mut random : &mut ParallelRandom, (material_list, ref material_volume): (&[Material], Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
+                    ref intensity: Option<Volume<&mut [AtomicU32]>>, ref mut temperature: Volume<&mut [AtomicF]>, mut next_temperature: Volume<&mut [AtomicF]>) -> [String; 2] {
+        [
+            light_propagation(random, (material_list, material_volume), δx, δt, laser, intensity, temperature),
+            heat_diffusion((material_list, material_volume), δx, δt, temperature.get_mut().as_ref(), next_temperature.get_mut())
+        ]
     }
 
     let mut step = 0;
@@ -239,32 +247,33 @@ fn main() -> ui::Result {
     let mut temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
     let mut next_temperature : Volume<Box<[AtomicF]>> = Volume::default(size);
 
-    use {image::Image, ui::Plot, view::{LabeledImage, Grid, write_image}};
+    use {image::Image, ui::Plot, view::{LabeledImage, Grid, App, write_image}};
 
     let Tt_z = [7, 14, 21];
     let Iz_radius = f32::from((1.|mm) / δx) as u32;
     let Ir_z = 2.|mm;
 
-    //x_scale: δt.unwrap()
     let Tt = Plot::new("Temperature over time for probes on the axis", xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| ((z as f64)*δx).to_string())));
-    //x_scale: δx.unwrap(),
     let Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
-    //x_scale: δx.unwrap(),
     let Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
 
     let Tyz = LabeledImage::new("Temperature over y,z (x projected by summing)", Image::zero(xy{x: temperature.size.y, y: temperature.size.z-1}));
 
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
-    ui::run(&mut Grid(Plots{Tt, Iz, Ir, Tyz}), &mut move |grid: &mut _| -> ui::Result<bool> {
+    struct State { stop: usize }
+    let actions = [(' ', |app:&mut App<State,_>| app.state.stop *= 2)];
+    let ref actions = actions.each_ref().map(|(key,closure)| (*key, closure as &_));
+    ui::run(&mut App{state: State{stop: 64}, widget: Grid(Plots{Tt, Iz, Ir, Tyz}), actions}, &mut move |app: &mut _| -> ui::Result<bool> {
         let _report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, Some(intensity.as_mut()), temperature.as_mut(), next_temperature.as_mut());
         std::mem::swap(&mut temperature, &mut next_temperature);
         //use itertools::Itertools; println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
         step += 1;
 
+        let App{widget: Grid(Plots{Tt, Iz, Ir, Tyz}), state: State{stop},..} = app;
+
         // T(t) at z={probes}
-        let Grid(Plots{Tt, Iz, Ir, Tyz}) = grid;
-        let temperature = Volume::new(size, AtomicF::get_mut_slice(&mut temperature.data));
         Tt.x_values.push( δt.unwrap() * step as f64 );
+        let temperature = temperature.get_mut();
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
             Tt.sets[i].push( temperature[p] );
@@ -318,16 +327,11 @@ fn main() -> ui::Result {
             let r = f64::sqrt(vector::sq(xy{x,y}) as f64);
             let power : Power = laser.sample_power(laser_samples_per_step);
             use std::f64::consts::PI;
-            //let area : Area = PI * (sq(δx * f64::floor(r+1.)) - sq(δx * f64::floor(r))); // Ring
-            //let area : Area = sq(δx) * 2.*PI * (f64::floor(r)+1.); // Ring
             let area : Area = sq(δx) * 2.*PI * r; // Ring
             let intensity : Intensity = power / area;
             let r = r as usize;
             if r < laser_profile.len() { laser_profile[r] += intensity; }
         }
-        /*let norm_Ir = Ir.sets[0].iter().sum::<f64>();
-        let norm_I0 = I0.iter().sum::<f64>();
-        Ir.sets[1] = list(I0.iter().map(|&I| I * norm_Ir / norm_I0)).into();*/
         Ir.sets[1] = list(laser_profile.iter().map(|&I| I.unwrap() / (step as f64))).into();
         Ir.need_update();
 
@@ -337,11 +341,11 @@ fn main() -> ui::Result {
             Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x, z: 1+image_y}]).sum::<float>() as f32;
         }}
 
-        let stop = 64;
-        if [stop].contains(&step) {
+        let stop = *stop;
+        if step == stop {
             let path = format!("out/a={a},s={s},d={d},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
             std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTyz: ({Tyz:?}, {:?})", Tyz.data)).unwrap();
-            write_image(path+".avif", grid);
+            write_image(path+".avif", app);
         }
         Ok(step <= stop)
     })

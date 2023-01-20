@@ -1,7 +1,7 @@
 #![allow(non_camel_case_types)]
-pub trait atomic_from_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
-impl atomic_from_mut<f32> for atomic_float::AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
-impl atomic_from_mut<f64> for atomic_float::AtomicF64 { fn get_mut_slice(this: &mut [Self]) -> &mut [f64] { unsafe { &mut *(this as *mut [Self] as *mut [f64]) } } }
+pub trait get_mut<T> where Self:Sized { fn get_mut_slice(this: &mut [Self]) -> &mut [T] ; }
+impl get_mut<f32> for atomic_float::AtomicF32 { fn get_mut_slice(this: &mut [Self]) -> &mut [f32] { unsafe { &mut *(this as *mut [Self] as *mut [f32]) } } }
+impl get_mut<f64> for atomic_float::AtomicF64 { fn get_mut_slice(this: &mut [Self]) -> &mut [f64] { unsafe { &mut *(this as *mut [Self] as *mut [f64]) } } }
 
 use vector::xyz;
 pub type uint3 = xyz<u32>;
@@ -47,3 +47,8 @@ impl<T> Volume<Box<[T]>> {
 impl<T:Default> Volume<Box<[T]>> {
     pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::repeat_with(|| T::default())) }
 }
+
+//impl Volume<&mut [atomic_float::AtomicF32]> { pub fn get_mut(&mut self) -> Volume<&mut [f32]> { Volume::new(self.size, atomic_float::AtomicF32::get_mut_slice(&mut self.data)) } }
+impl Volume<&mut [atomic_float::AtomicF64]> { pub fn get_mut(&mut self) -> Volume<&mut [f64]> { Volume::new(self.size, atomic_float::AtomicF64::get_mut_slice(&mut self.data)) } }
+//impl Volume<Box<[atomic_float::AtomicF32]>> { pub fn get_mut(&mut self) -> Volume<&mut [f32]> { Volume::new(self.size, atomic_float::AtomicF32::get_mut_slice(&mut self.data)) } }
+impl Volume<Box<[atomic_float::AtomicF64]>> { pub fn get_mut(&mut self) -> Volume<&mut [f64]> { Volume::new(self.size, atomic_float::AtomicF64::get_mut_slice(&mut self.data)) } }

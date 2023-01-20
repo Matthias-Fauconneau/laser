@@ -1,4 +1,4 @@
-use ui::{prelude::*, Widget, size, int2, EventContext};
+use ui::{prelude::*, Widget, Target, size, int2, Event::{self, Key}, EventContext};
 
 #[macro_export] macro_rules! derive_IntoIterator { {pub struct $name:ident { $(pub $field_name:ident: $field_type:ty),*}} => {
     pub struct $name { $(pub $field_name: $field_type,)* }
@@ -11,7 +11,7 @@ use ui::{prelude::*, Widget, size, int2, EventContext};
 
 pub struct Linear<T>(pub T);
 impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
-    #[throws] fn paint(&mut self, target: &mut ui::Target, size: size, _offset: int2) {
+    #[throws] fn paint(&mut self, target: &mut Target, size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
         let len = 2;
         let mut pen = 0;
@@ -28,7 +28,7 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
             image::fill(target, 0);
         }
     }
-    fn event(&mut self, size: size, context: &mut ui::widget::EventContext, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
+    fn event(&mut self, size: size, context: &mut EventContext, event: &Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 pub type VBox<T> = Linear<T>;
 
@@ -84,6 +84,19 @@ fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, pub image: ImageView } }
 pub type LabeledImage = VBox<LabelImage>;
 impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
+
+pub struct App<'a, 'f, S, W> {
+    pub state: S,
+    pub widget: W,
+    pub actions: &'a [(char,&'f dyn Fn(&mut Self))],
+}
+impl<S, W: Widget> Widget for App<'_, '_, S, W> {
+    fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.widget.paint(target, size, offset) }
+    #[throws] fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> bool {
+        if self.widget.event(size, context, event)? { true }
+        else { if let &Key(key) = event { for action in self.actions { if action.0 == key && {(action.1)(self); true} { return true; } } } false }
+    }
+}
 
 //use image::Image;
 pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
