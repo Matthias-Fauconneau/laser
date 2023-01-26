@@ -115,13 +115,16 @@ macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:i
         #[allow(dead_code,non_upper_case_globals)] pub const $unit : Unit<$quantity> = unit();
         impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f64 { self.0 } }
         impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let log10 = f64::log10(self.0 as f64);
-            let floor1000 = f64::floor(log10/3.); // submultiple
-            let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
-            let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };
-            let submultiple = ["n","µ","m","","k","M","G"][(3+(floor1000 as i8)) as usize];
-            write!(f, concat!("{}{}", stringify!($unit)), submagnitude, submultiple)
-        } }
+            if self.0 == 0. { write!(f,"0") } else {
+                let log10 = f64::log10(f64::abs(self.0) as f64);
+                let floor1000 = f64::floor(log10/3.); // submultiple
+                let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
+                let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };
+                assert!(f64::clamp(-3., floor1000, 3.) == floor1000, "{floor1000}");
+                let submultiple = ["n","µ","m","","k","M","G"][(3+(floor1000 as i8)) as usize];
+                write!(f, concat!("{}{}{}", stringify!($unit)), if self.0<0. {"-"} else {""}, submagnitude, submultiple)
+            }
+    }}
 } }
 
 // time [T], length [L], mass [M], temperature [θ]
@@ -159,6 +162,14 @@ pub struct MilliUnit<Q>(std::marker::PhantomData<Q>);
 pub const fn milli_unit<Q>() -> MilliUnit<Q> { MilliUnit(std::marker::PhantomData) }
 impl<Q:F32> std::ops::BitOr<MilliUnit<Q>> for f64 { type Output = Q; fn bitor(self, _: MilliUnit<Q>) -> Self::Output { Q::wrap(self*1e-3) } }
 #[allow(dead_code,non_upper_case_globals)] pub const mm : MilliUnit<Length> = milli_unit();
+pub struct MicroUnit<Q>(std::marker::PhantomData<Q>);
+pub const fn micro_unit<Q>() -> MicroUnit<Q> { MicroUnit(std::marker::PhantomData) }
+impl<Q:F32> std::ops::BitOr<MicroUnit<Q>> for f64 { type Output = Q; fn bitor(self, _: MicroUnit<Q>) -> Self::Output { Q::wrap(self*1e-6) } }
+#[allow(dead_code,non_upper_case_globals)] pub const µm : MicroUnit<Length> = micro_unit();
+pub struct NanoUnit<Q>(std::marker::PhantomData<Q>);
+pub const fn nano_unit<Q>() -> NanoUnit<Q> { NanoUnit(std::marker::PhantomData) }
+impl<Q:F32> std::ops::BitOr<NanoUnit<Q>> for f64 { type Output = Q; fn bitor(self, _: NanoUnit<Q>) -> Self::Output { Q::wrap(self*1e-9) } }
+#[allow(dead_code,non_upper_case_globals)] pub const nm : NanoUnit<Length> = nano_unit();
 
 pub trait System { type Scalar<T: PartialEq+Clone> : PartialEq+Clone; }
 #[derive(PartialEq,Clone)] pub struct Dimensionalized; //FIXME: derive should not be required here

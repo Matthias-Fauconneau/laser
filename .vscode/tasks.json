@@ -2,13 +2,31 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "kill-first",
+			"type": "shell",
+			"command": "PID=( $(ps aux | grep cargo || true | awk '{print $2}') ); kill -9 PID \"${PID[2]}\" || true && exit 0;"
+		},
+		{
 			"type": "cargo",
 			"command": "run",
-			"args": ["--release","--features","avif"],
 			"problemMatcher": [
 				"$rustc"
 			],
-			"label": "rust: cargo run"
+			"label": "dev",
+			"dependsOn": ["kill-npm-first"],
+			"dependsOrder": "sequence",
+			"presentation": { "clear": true }
+		},
+		{
+			"type": "cargo",
+			"command": "run",
+			"args": ["--features","avif","--release"],
+			"problemMatcher": [
+				"$rustc"
+			],
+			"label": "avif release",
+			"dependsOn": ["kill-npm-first"],
+			"dependsOrder": "sequence",
 		}
 	]
 }

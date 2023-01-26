@@ -84,16 +84,38 @@ derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, 
 pub type LabeledImage = VBox<LabelImage>;
 impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
 
-pub struct App<'a, 'f, S, W> {
+pub struct App<'i, 'a, 'f, S, W> {
     pub state: S,
     pub widget: W,
     pub actions: &'a [(char,&'f dyn Fn(&mut Self))],
 }
-impl<S, W: Widget> Widget for App<'_, '_, S, W> {
+impl<S, W: Widget> Widget for App<'_, '_, '_, S, W> {
     fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.widget.paint(target, size, offset) }
-    #[throws] fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> bool {
-        if self.widget.event(size, context, event)? { true }
-        else { if let &Key(key) = event { for action in self.actions { if action.0 == key && {(action.1)(self); true} { return true; } } } false }
+    fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> Result<bool> {
+        if self.widget.event(size, context, event)? { Ok(true) }
+        else {
+            match event {
+                &Key(key) => { for action in self.actions { if action.0 == key && {(action.1)(self); true} { return Ok(true); } } Ok(false)},
+                _=> Ok(false)
+            }
+        }
+    }
+}
+
+pub struct Idle<'t, A> {
+    pub app: A,
+    pub idle: &'t mut dyn FnMut(&mut A) -> Result<bool>,
+}
+impl<A:Widget> Widget for Idle<'_, A> {
+    fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.app.paint(target, size, offset) }
+    fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> Result<bool> {
+        if self.app.event(size, context, event)? { Ok(true) }
+        else {
+            match event {
+                ui::Event::Idle => (self.idle)(&mut self.app),
+                _=> Ok(false)
+            }
+        }
     }
 }
 

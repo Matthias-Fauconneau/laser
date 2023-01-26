@@ -4,17 +4,23 @@ impl get_mut<f32> for atomic_float::AtomicF32 { fn get_mut_slice(this: &mut [Sel
 impl get_mut<f64> for atomic_float::AtomicF64 { fn get_mut_slice(this: &mut [Self]) -> &mut [f64] { unsafe { &mut *(this as *mut [Self] as *mut [f64]) } } }
 
 use vector::xyz;
-pub type uint3 = xyz<u32>;
+pub type uint3 = xyz<u16>;
+//pub fn prod(z: u16, y: u16, x: u16) -> u32 { z as u32 * y as u32 * x as u32 }
+pub fn product(v: uint3) -> u32 { v.z as u32 * v.y as u32 * v.x as u32 }
 pub type size = uint3;
 pub struct Volume<D> {
     pub data : D,
     pub size : size,
 }
 impl<D> Volume<D> {
-    #[track_caller] pub fn index(&self, xyz{x,y,z}: uint3) -> usize { assert!(x < self.size.x && y < self.size.y && z < self.size.z, "{x} {y} {z} {:?}", self.size); (((z * self.size.y + y) * self.size.x) + x) as usize }
-    pub fn new<T>(size : size, data: D) -> Self where D:AsRef<[T]> { assert_eq!(data.as_ref().len(), (size.z*size.y*size.x) as usize); Self{data, size} }
+    #[track_caller] pub fn index(&self, xyz{x,y,z}: uint3) -> usize {
+        assert!(x < self.size.x && y < self.size.y && z < self.size.z, "{x} {y} {z} {:?}", self.size);
+        (((z as u32 * self.size.y as u32 + y as u32) * self.size.x as u32) + x as u32) as usize
+    }
+    pub fn new<T>(size : size, data: D) -> Self where D:AsRef<[T]> { assert_eq!(data.as_ref().len(), product(size) as usize); Self{data, size} }
     pub fn as_ref<T>(&self) -> Volume<&[T]> where D:AsRef<[T]> { Volume{data: self.data.as_ref(), size: self.size} }
     pub fn as_mut<T>(&mut self) -> Volume<&mut [T]> where D:AsMut<[T]> { Volume{data: self.data.as_mut(), size: self.size} }
+    pub fn len(&self) -> usize { (self.size.z as u32 * self.size.y as u32 * self.size.x as u32) as usize }
 }
 
 impl<T, D:std::ops::Deref<Target=[T]>> std::ops::Index<usize> for Volume<D> {
@@ -34,15 +40,16 @@ impl<D> std::ops::IndexMut<uint3> for Volume<D> where Self: std::ops::IndexMut<u
 }
 
 impl<'t, T> Volume<&'t mut [T]> {
-    pub fn take_mut<'s>(&'s mut self, mid: u32) -> Volume<&'t mut[T]> {
+    pub fn take_mut<'s>(&'s mut self, mid: u16) -> Volume<&'t mut[T]> {
         assert!(mid <= self.size.z);
         self.size.z -= mid;
-        Volume{size: xyz{x: self.size.x, y: self.size.y, z: mid}, data: self.data.take_mut(..(mid*self.size.y*self.size.x) as usize).unwrap()}
+        let size = xyz{x: self.size.x, y: self.size.y, z: mid};
+        Volume{size, data: self.data.take_mut(..product(size) as usize).unwrap()}
     }
 }
 
 impl<T> Volume<Box<[T]>> {
-    pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((size.z*size.y*size.x) as usize).collect()) }
+    pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((product(size)) as usize).collect()) }
 }
 impl<T:Default> Volume<Box<[T]>> {
     pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::repeat_with(|| T::default())) }
