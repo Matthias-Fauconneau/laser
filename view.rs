@@ -48,13 +48,12 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
 
 use {vector::{xy, minmax, MinMax}, image::{Image, PQ10, bgr}};
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
-    let MinMax{min,max} = dbg!(minmax(source.data.into_iter().copied()).unwrap());
+    let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
     let [num, den] = if source.size.x*target.size.y > source.size.y*target.size.x { [source.size.x, target.size.x] } else { [source.size.y, target.size.y] };
     for y in 0..std::cmp::min(source.size.y*den/num, target.size.y) {
         for x in 0..std::cmp::min(source.size.x*den/num, target.size.x) {
             let v = source[xy{x: x*num/den, y: y*num/den}];
-            //target[xy{x,y}] = bgr::from(PQ10((v-min)/(max-min))).into();
             target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into()
         }
     }

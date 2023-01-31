@@ -256,11 +256,7 @@ fn main() -> Result {
                 let blood_heat_flux_per_T = blood_volumetric_heat_capacity * blood_flux;
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
                 let β = (δt * (δx * (blood_heat_flux_per_T / volumetric_heat_capacity))).unitless();
-                //assert!(β < 1., "{β}");
                 next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction;
-                //next_temperature_chunk[xyz{x, y, z: z-z0}] = T.K() + α * thermal_conduction - (β * (T - initial_blood_temperature)).K(); // dt(T) = αΔT
-                //next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T.K() + α * thermal_conduction;// + β * initial_blood_temperature.K(); // dt(T) = αΔT
-                //next_temperature_chunk[xyz{x, y, z: z-z0}] = T(0,0,0) + α * thermal_conduction;
             }}};
             let mut next_temperature = next_temperature.as_mut();
             let range = 1..size.z-1;
