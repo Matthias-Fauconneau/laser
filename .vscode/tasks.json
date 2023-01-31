@@ -27,6 +27,7 @@
 			"label": "avif release",
 			"dependsOn": ["kill-npm-first"],
 			"dependsOrder": "sequence",
+			"presentation": { "clear": true }
 		}
 	]
 }

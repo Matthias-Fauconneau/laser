@@ -50,9 +50,13 @@ impl<'t, T> Volume<&'t mut [T]> {
 
 impl<T> Volume<Box<[T]>> {
     pub fn from_iter<I:IntoIterator<Item=T>>(size : size, iter : I) -> Self { Self::new(size, iter.into_iter().take((product(size)) as usize).collect()) }
+    pub fn repeat(size: size, f: impl Fn()->T) -> Self { Self::from_iter(size, std::iter::repeat_with(f)) }
+}
+impl<T:Copy> Volume<Box<[T]>> {
+    //pub fn fill(size: size, value: T) -> Self { Self::repeat(size, || value) }
 }
 impl<T:Default> Volume<Box<[T]>> {
-    pub fn default(size: size) -> Self { Self::from_iter(size, std::iter::repeat_with(|| T::default())) }
+    pub fn default(size: size) -> Self { Self::repeat(size, || T::default()) }
 }
 
 //impl Volume<&mut [atomic_float::AtomicF32]> { pub fn get_mut(&mut self) -> Volume<&mut [f32]> { Volume::new(self.size, atomic_float::AtomicF32::get_mut_slice(&mut self.data)) } }

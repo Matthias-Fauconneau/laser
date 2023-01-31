@@ -1,4 +1,4 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
 use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant, fs};
 mod SI; use SI::*;
@@ -22,7 +22,7 @@ impl<const R: usize, const C: usize> RayCell<R,C> where [(); R*C/8]: {
 }
 
 fn main() -> Result {
-    let size = xyz{x: 257, y: 257, z: 129};
+    let size = xyz{x: 257, y: 257, z: 65};
 
     const anisotropy : f32 = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
     let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / (anisotropy as f64);
@@ -31,11 +31,12 @@ fn main() -> Result {
         mass_density: 1030.|kg_m3,
         specific_heat_capacity: 3595.|J_K·kg,
         thermal_conductivity: 0.49|W_m·K,
-        absorption_coefficient: 7.54|_m,
+        absorption_coefficient: 7.54|_cm,
         scattering_coefficient: scattering(999.|_m), //@750nm
     };
     let ref cancer = DMaterial{absorption_coefficient: 10. |_m, ..tissue.clone()};
-    let T = (273.15 + 36.85)|K;
+    const initial_blood_temperature : Temperature = 36.85|C;
+    let T = initial_blood_temperature;
     let ref glue = DMaterial{
         mass_density: 895.|kg_m3,
         specific_heat_capacity: (3353.5|J_K·kg) + (5.245|J_K2·kg) * T, // <~5000
@@ -45,11 +46,11 @@ fn main() -> Result {
     let material_list = [tissue, cancer, glue];
 
     let id = |material| material_list.iter().position(|&o| o == material).unwrap() as u8;
-    fn map(size: size, height: Length, x: Length) -> u16 { (f64::from(x/height)*(size.z as f64)) as u16 }
+    fn map(size: size, height: Length, x: Length) -> u16 { ((x/height).unitless()*(size.z as f64)) as u16 }
     fn z(size: size, height: Length, start: Length, end: Length) -> Range<u32> { product(xyz{z: map(size, height, start), ..size}) .. product(xyz{z: map(size, height, end), ..size}) }
     let (height, material_volume) : (Length,_) = match "tissue" {
         "tissue" => {
-            let height = 2.|cm;
+            let height = 1.|cm;
             let material_volume = Volume::from_iter(size, z(size, height, 0.|m, height).map(|_| id(tissue)));
             (height, material_volume)
         },
@@ -92,11 +93,11 @@ fn main() -> Result {
     let thermal_diffusivity = thermal_conductivity / volumetric_heat_capacity; // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) ~ 0.1 mm²/s
     let δt = 0.1 / (thermal_diffusivity / sq(δx)); // Time step ~ 20ms
 
-    let C : Unitless = thermal_diffusivity / sq(δx) * δt;
-    assert!(f64::from(C) <= 1./2., "{C}"); // Courant–Friedrichs–Lewy condition
+    let Courant_Friedrichs_Lewy_condition = thermal_diffusivity / sq(δx) * δt;
+    assert!(Courant_Friedrichs_Lewy_condition < 1., "{Courant_Friedrichs_Lewy_condition}");
 
     let ref material_list = material_list.map(|&DMaterial{mass_density, specific_heat_capacity, thermal_conductivity, absorption_coefficient, scattering_coefficient}| {
-        Material{mass_density, specific_heat_capacity, thermal_conductivity, absorption_coefficient: (absorption_coefficient*δx).into(), scattering_coefficient: (scattering_coefficient*δx).into()}
+        Material{mass_density, specific_heat_capacity, thermal_conductivity, absorption_coefficient: (absorption_coefficient*δx).f32(), scattering_coefficient: (scattering_coefficient*δx).f32()}
     });
     type Material = self::Material<NonDimensionalized>;
 
@@ -131,23 +132,27 @@ fn main() -> Result {
     }
 
     let ref laser = Laser{
-        diameter: ((8.|mm) / δx).into(),
+        diameter: ((8.|mm) / δx).f32(),
         position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5},
         direction: xyz{x: 0., y: 0., z: 1.},
         power: 1.|W,
         //wavelength: 750.|nm,
         //focal_length: 0.|m,
     };
+
     const ray_per_thread : usize = 256; // atomic add u16 energy, and then have a temperature+float conversion pass might be more efficient than atomic float
     const threads : usize = 8;
     const ray_per_step : usize = ray_per_thread * threads;
+
     type float = f64;
     type AtomicF = AtomicF64;
+
     const intensity_cells: usize = 128;
     type RayCell = self::RayCell<ray_per_thread, intensity_cells>;
     #[derive(Default)] struct IntensityCells { z: RayCell, r: RayCell, z_radius : f32, r_z: u16 }
     /*#[derive(Default)]*/ struct IntensitySum { z: [AtomicU32; intensity_cells], r: [AtomicU32; intensity_cells], z_radius: f32, r_z: u16 }
     impl Default for IntensitySum { fn default() -> Self { Self{z: from_fn(|_| default()), r: from_fn(|_| default()), z_radius: default(), r_z: default()}}}
+
     fn light_propagation(ref mut random : &mut ParallelRandom, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
         intensity_sum: Option<&mut IntensitySum>, temperature: &Volume<&mut [AtomicF]>) -> String {
         fn task(ref mut random : impl Random, (material_list, material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
@@ -199,7 +204,7 @@ fn main() -> Result {
                     position = position + direction;
                 }
             }
-            if let Some(intensity_sum) = intensity_sum.as_ref() {
+            if let Some(intensity_sum) = intensity_sum.as_ref() { // Intensity sum over rays
                 let intensity = intensity.as_mut().unwrap();
                 for cell in 0..intensity_cells {
                     intensity_sum.z[cell].fetch_add(intensity.z.count(cell as u8) as u32, Relaxed);
@@ -227,8 +232,8 @@ fn main() -> Result {
             let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[float]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
                 let id = material_volume[xyz{x, y , z}];
                 let Material{mass_density: density, specific_heat_capacity,thermal_conductivity,..} = material_list[id as usize];
-                let volumetric_heat_capacity : VolumetricHeatCapacity = density * specific_heat_capacity; // J/K·m³
-                let thermal_diffusivity : ThermalDiffusivity = thermal_conductivity / volumetric_heat_capacity; // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) [m²/s]
+                let volumetric_heat_capacity = density * specific_heat_capacity; // J/K·m³
+                let thermal_diffusivity = thermal_conductivity / volumetric_heat_capacity; // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) [m²/s]
                 // dt(Q) = c ρ dt(T) : heat energy
                 // dt(Q) = - dx(q): heat flow (positive outgoing)
                 // => dt(T) = - 1/(cρ) dx(q)
@@ -238,10 +243,24 @@ fn main() -> Result {
                 let dxxT = T(-1, 0, 0) - 2. * T(0, 0, 0) + T(1, 0, 0);
                 let dyyT = T(0, -1, 0) - 2. * T(0, 0, 0) + T(0, 1, 0);
                 let dzzT = T(0, 0, -1) - 2. * T(0, 0, 0) + T(0, 0, 1);
-                let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T)
-                // Explicit time step (First order: Euler): T[t+1]  = T(t) + δt·dt(T)
+                let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T) {=> /δx²}
                 let α = thermal_diffusivity / sq(δx) * δt;
-                next_temperature_chunk[xyz{x, y, z: z-z0}] = T(0,0,0) + α * thermal_conduction; // dt(T) = αΔT
+                // Blood flow
+                let blood_density = 1000.|kg_m3;
+                let blood_specific_heat_capacity = 3595.|J_K·kg;
+                let capillary_blood_speed = 1.|mm_s;
+                let capillary_area = 100.|µm2;
+                let capillary_density = 1000.|_mm2;
+                let blood_flux : Speed = capillary_blood_speed * capillary_area * capillary_density;
+                let blood_volumetric_heat_capacity = blood_density * blood_specific_heat_capacity; // J/K·m³
+                let blood_heat_flux_per_T = blood_volumetric_heat_capacity * blood_flux;
+                // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
+                let β = (δt * (δx * (blood_heat_flux_per_T / volumetric_heat_capacity))).unitless();
+                //assert!(β < 1., "{β}");
+                next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction;
+                //next_temperature_chunk[xyz{x, y, z: z-z0}] = T.K() + α * thermal_conduction - (β * (T - initial_blood_temperature)).K(); // dt(T) = αΔT
+                //next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T.K() + α * thermal_conduction;// + β * initial_blood_temperature.K(); // dt(T) = αΔT
+                //next_temperature_chunk[xyz{x, y, z: z-z0}] = T(0,0,0) + α * thermal_conduction;
             }}};
             let mut next_temperature = next_temperature.as_mut();
             let range = 1..size.z-1;
@@ -253,13 +272,18 @@ fn main() -> Result {
                 thread::Builder::new().spawn_scoped(s, move || task(z0, z1, next_temperature_chunk)).unwrap()
             }) { thread.join().unwrap(); });
         }
-        // Boundary conditions: adiabatic dz(T)_boundary=0 (Neumann) using ghost points
-        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: 0, y, z}] = next_temperature[xyz{x: 1, y, z}]; } } // Left: Sets ghost points to temperature of point beside
-        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: size.x-1, y, z}] = next_temperature[xyz{x: size.x-2, y, z}]; } } // Right: Sets ghost points to temperature of point beside
+        // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
+        for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
+            const q : FluxDensity = 50.|W_m2; // Heat loss through skin-air interface (evaporation, radiation, convection, conduction)
+            let δT = δx*(q/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
+            next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K();
+             // could have set adiabatic and directly offset T instead but this way is more higher order compatible
+        } }
+        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: size.z-1}] = next_temperature[xyz{x, y, z: size.z-2}]; } } // Bottom: Sets ghost points to temperature of point above
         for z in 0..size.z { for x in 0..size.x { next_temperature[xyz{x, y : 0, z}] = next_temperature[xyz{x, y: 1, z}]; } } // Front: Sets ghost points to temperature of point behind
         for z in 0..size.z { for x in 0..size.x { next_temperature[xyz{x, y: size.y-1, z}] = next_temperature[xyz{x, y: size.y-2, z}]; } } // Back: Sets ghost points to temperature of point before
-        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}]; } } // Top: Sets ghost points to temperature of point below
-        for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: size.z-1}] = next_temperature[xyz{x, y, z: size.z-2}]; } } // Bottom: Sets ghost points to temperature of point above
+        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: 0, y, z}] = next_temperature[xyz{x: 1, y, z}]; } } // Left: Sets ghost points to temperature of point beside
+        for z in 0..size.z { for y in 0..size.y { next_temperature[xyz{x: size.x-1, y, z}] = next_temperature[xyz{x: size.x-2, y, z}]; } } // Right: Sets ghost points to temperature of point beside
         let elapsed = start.elapsed();
         format!("{}M points {}ms {}ns", temperature.len()/1000000, elapsed.as_millis(), elapsed.as_nanos()/(temperature.len() as u128))
     }
@@ -279,8 +303,9 @@ fn main() -> Result {
     let mut temperature = Volume::<Box<[AtomicF]>>::default(size);
     let mut next_temperature = Volume::<Box<[AtomicF]>>::default(size);
 
+
     let Ir_z = 2.|mm;
-    let mut intensity = IntensitySum{z_radius: f32::from((1.|mm) / δx), r_z: f32::from(Ir_z / δx) as u16,  ..default()};
+    let mut intensity = IntensitySum{z_radius: ((1.|mm) / δx).f32(), r_z: (Ir_z / δx).f32() as u16,  ..default()};
 
     let Tt_z = [7, 14, 21];
 
@@ -307,7 +332,7 @@ fn main() -> Result {
         let temperature = temperature.get_mut();
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
-            Tt.sets[i].push( temperature[p] );
+            Tt.sets[i].push( temperature[p] /*- initial_blood_temperature.K()*/ );
         }
 
         // axial: I(z)
@@ -359,7 +384,8 @@ fn main() -> Result {
         // T(y,z) (x sum)
         let ref mut Tyz = Tyz.0.image.0;
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
-            Tyz[xy{x: image_x, y: image_y}] = (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}]).sum::<float>() as f32;
+            Tyz[xy{x: image_x, y: image_y}] =
+                (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}] /*- initial_blood_temperature.K()*/).sum::<f64>() as f32;
         }}
 
         let stop = *stop;

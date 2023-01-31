@@ -28,7 +28,7 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
             image::fill(target, 0);
         }
     }
-    fn event(&mut self, size: size, context: &mut EventContext, event: &Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
+    fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 pub type VBox<T> = Linear<T>;
 
@@ -43,17 +43,19 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
             if let Some(widget) = widgets.next() { widget.paint(target, size, 0.into())?; } else { break; }
         }}
     }
-    fn event(&mut self, size: size, context: &mut ui::widget::EventContext, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
+    fn event(&mut self, size: size, context: &mut Option<ui::widget::EventContext>, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
-use {vector::xy, image::{Image, PQ10, bgr}};
+use {vector::{xy, minmax, MinMax}, image::{Image, PQ10, bgr}};
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
-    let max = source.iter().copied().reduce(f32::max).unwrap();
-    if max == 0. { return; }
+    let MinMax{min,max} = dbg!(minmax(source.data.into_iter().copied()).unwrap());
+    if min == max { return; }
     let [num, den] = if source.size.x*target.size.y > source.size.y*target.size.x { [source.size.x, target.size.x] } else { [source.size.y, target.size.y] };
     for y in 0..std::cmp::min(source.size.y*den/num, target.size.y) {
         for x in 0..std::cmp::min(source.size.x*den/num, target.size.x) {
-            target[xy{x,y}] = bgr::from(PQ10(source[xy{x: x*num/den, y: y*num/den}]/max)).into();
+            let v = source[xy{x: x*num/den, y: y*num/den}];
+            //target[xy{x,y}] = bgr::from(PQ10((v-min)/(max-min))).into();
+            target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into()
         }
     }
 }
@@ -76,7 +78,7 @@ impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target,
     image::fill(target, ui::background.into());
     self.widget.paint(target, size, offset)
 }
-fn event(&mut self, _: size, _: &mut ui::EventContext, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
+fn event(&mut self, _: size, _: &mut Option<ui::EventContext>, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
 fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 }
 
@@ -91,7 +93,7 @@ pub struct App<'i, 'a, 'f, S, W> {
 }
 impl<S, W: Widget> Widget for App<'_, '_, '_, S, W> {
     fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.widget.paint(target, size, offset) }
-    fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> Result<bool> {
+    fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &ui::Event) -> Result<bool> {
         if self.widget.event(size, context, event)? { Ok(true) }
         else {
             match event {
@@ -108,7 +110,7 @@ pub struct Idle<'t, A> {
 }
 impl<A:Widget> Widget for Idle<'_, A> {
     fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.app.paint(target, size, offset) }
-    fn event(&mut self, size: size, context: &mut EventContext, event: &ui::Event) -> Result<bool> {
+    fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &ui::Event) -> Result<bool> {
         if self.app.event(size, context, event)? { Ok(true) }
         else {
             match event {
@@ -135,7 +137,7 @@ pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
 pub fn write_image(path: impl AsRef<std::path::Path>, view: &mut impl Widget) {
     let mut target = Image::zero(xy{x: 3840, y: 2400});
     let size = target.size;
-    view.event(size, &mut EventContext{modifiers_state: Default::default(), cursor: None}, &ui::Event::Stale).unwrap();
+    view.event(size, &mut None, &ui::Event::Stale).unwrap();
     view.paint(&mut target.as_mut(), size, 0.into()).unwrap();
     write_avif(path, target);
 }
