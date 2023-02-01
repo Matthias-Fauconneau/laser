@@ -75,8 +75,8 @@ impl Div<Quantity<0,2,0,0>> for Quantity<-1,2,0,0> { type Output = Quantity<-1,0
 impl Div<Quantity<0,-3,1,0>> for Quantity<-1,-1,1,0> { type Output = Quantity<-1,2,0,0>; } // DynamicViscosity/MassDensity=Diffusivity
 impl Div<Quantity<-2,2,1,-1>> for Quantity<-2,2,1,0> { type Output = Quantity<0,0,0,1>; } // Energy/HeatCapacity=Temperature
 impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,1,1,-1> { type Output = Quantity<-1,2,0,0>; } // ThermalConductivity/VolumetricHeatCapacity=Diffusivity
-impl Div<Quantity<0,2,0,0>> for Quantity<-3,2,1,0> { type Output = Quantity<-3,0,1,0>; } // Power/Area=Intensity
-impl Div<Quantity<-3,1,1,-1>> for Quantity<-3,0,1,0> { type Output = Quantity<0,-1,0,1>; } // Intensity/ThermalConductivity=TemperatureGradient
+impl Div<Quantity<0,2,0,0>> for Quantity<-3,2,1,0> { type Output = Quantity<-3,0,1,0>; } // Power/Area=EnergyFluxDensity
+impl Div<Quantity<-3,1,1,-1>> for Quantity<-3,0,1,0> { type Output = Quantity<0,-1,0,1>; } // EnergyFluxDensity/ThermalConductivity=TemperatureGradient
 //impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,0,1,0> { type Output = Quantity<-1,-1,0,1>; } // HeatFluxDensity/VolumetricHeatCapacity=Θ/LT
 impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,0,1,-1> { type Output = Quantity<-1,-1,0,0>; } // (HeatFluxDensity/Θ)/VolumetricHeatCapacity=1/LT
 
@@ -160,7 +160,7 @@ quantity_unit!([-1,3,0,0] m3_s FlowRate);
 quantity_unit!([0,-3,1,0] kg_m3 MassDensity);
 quantity_unit!([-2,2,1,0] J Energy); //T⁻²L²M
 quantity_unit!([-3,2,1,0] W Power); // J/s
-quantity_unit!([-3,0,1,0] W_m2 Intensity);
+quantity_unit!([-3,0,1,0] W_m2 EnergyFluxDensity);
 quantity_unit!([-2,2,1,-1] J_K HeatCapacity);
 quantity_unit!([-2,2,0,-1] J_K·kg SpecificHeatCapacity);
 quantity_unit!([-2,-1,1,-1] J_K·m3 VolumetricHeatCapacity);
@@ -170,8 +170,8 @@ quantity_unit!([0,0,0,-1] _K ThermalExpansion);
 
 pub type ThermalDiffusivity = Diffusivity; // m²/s
 //pub type KinematicViscosity = Diffusivity; // m²/s
-pub type FluxDensity = Intensity;
-pub type HeatFluxDensity = Intensity;
+pub type FluxDensity = Speed;
+pub type HeatFluxDensity = EnergyFluxDensity;
 
 quantity_unit!([-2,2,0,-2] J_K2·kg SpecificHeatCapacity_K);
 quantity_unit!([-3,1,1,-2] W_m·K2 ThermalConductivity_K);

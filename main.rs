@@ -251,11 +251,11 @@ fn main() -> Result {
                 let capillary_blood_speed = 1.|mm_s;
                 let capillary_area = 100.|µm2;
                 let capillary_density = 1000.|_mm2;
-                let blood_flux : Speed = capillary_blood_speed * capillary_area * capillary_density;
+                let blood_flux_density : FluxDensity = capillary_blood_speed * capillary_area * capillary_density;
                 let blood_volumetric_heat_capacity = blood_density * blood_specific_heat_capacity; // J/K·m³
-                let blood_heat_flux_per_T = blood_volumetric_heat_capacity * blood_flux;
+                let blood_heat_flux_density_per_T = blood_volumetric_heat_capacity * blood_flux_density;
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
-                let β = (δt * (δx * (blood_heat_flux_per_T / volumetric_heat_capacity))).unitless();
+                let β = (δt * (δx * (blood_heat_flux_density_per_T / volumetric_heat_capacity))).unitless();
                 next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction;
             }}};
             let mut next_temperature = next_temperature.as_mut();
