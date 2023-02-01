@@ -46,7 +46,7 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
     fn event(&mut self, size: size, context: &mut Option<ui::widget::EventContext>, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
-use {vector::{xy, minmax, MinMax}, image::{Image, PQ10, bgr}};
+use {vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::{text, bold}}};
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
     let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
@@ -57,6 +57,17 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
             target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into()
         }
     }
+    for x in 0..target.size.x {
+        let v = min+(x as f32)/(target.size.x as f32)*(max-min);
+        let c = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into();
+        for y in target.size.y/2..target.size.y*3/4 { target[xy{x,y}] = c; }
+    }
+    for (i, v) in [min,max].iter().enumerate() {
+        let mut target = target.slice_mut(xy{x: i as u32*2*target.size.x/3, y: target.size.y*3/4}, xy{x: target.size.x/3, y:target.size.y/4});
+        let size = target.size;
+        fill(&mut target, background.into());
+        text(&format!("{v:.2}"), &[]).paint_fit(&mut target, size, xy{x: 0, y: 0});
+    }
 }
 
 type ImageF = Image<Box<[f32]>>;
@@ -65,7 +76,7 @@ impl Widget for ImageView {
     fn size(&mut self, size: size) -> size {
         let ref source = self.0;
         let (num, den) = if source.size.x*size.y > source.size.y*size.x { (source.size.x, size.x) } else { (source.size.y, size.y) };
-        xy{x: std::cmp::min(source.size.x*den/num, size.x), y: std::cmp::min(source.size.y*den/num, size.y)}
+        xy{x: std::cmp::min(source.size.x*den/num, size.x), y: std::cmp::min(source.size.y*den/num, size.y)*2}
     }
     #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) }
 }
@@ -74,7 +85,7 @@ pub struct Fill<T>{ widget: T, fresh: bool }
 impl<T> Fill<T> { fn new(widget: T) -> Self { Self{widget, fresh: false} } }
 impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
     if self.fresh { return Ok(()); } self.fresh = true;
-    image::fill(target, ui::background.into());
+    fill(target, background.into());
     self.widget.paint(target, size, offset)
 }
 fn event(&mut self, _: size, _: &mut Option<ui::EventContext>, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
@@ -83,7 +94,7 @@ fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 
 derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, pub image: ImageView } }
 pub type LabeledImage = VBox<LabelImage>;
-impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(ui::text::text(label, &ui::text::bold)), image: ImageView(image)}) } }
+impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(text(label, &bold)), image: ImageView(image)}) } }
 
 pub struct App<'i, 'a, 'f, S, W> {
     pub state: S,

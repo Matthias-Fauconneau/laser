@@ -1,4 +1,4 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
 use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant, fs};
 mod SI; use SI::*;
@@ -246,19 +246,13 @@ fn main() -> Result {
                 let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T) {=> /δx²}
                 let α = thermal_diffusivity / sq(δx) * δt;
                 // Blood flow
-                //let blood_density = 1000.|kg_m3;
                 let blood_specific_heat_capacity = 3595.|J_K·kg;
-                /*let capillary_blood_speed = 1.|mm_s;
-                let capillary_area = 100.|µm2;
-                let capillary_density = 1000.|_mm2;
-                let blood_flux_density : FluxDensity = capillary_blood_speed * capillary_area * capillary_density;
-                let blood_volumetric_heat_capacity = blood_density * blood_specific_heat_capacity; // J/K·m³*/
                 let volumetric_rate_of_mass_perfusion = 0.5|kg_m3s;
                 let volumetric_rate_of_heat_capacity_perfusion : VolumetricPowerCapacity = volumetric_rate_of_mass_perfusion * blood_specific_heat_capacity;
-                //let blood_heat_flux_density_per_T = blood_volumetric_heat_capacity * blood_flux_density;
+                let metabolic_heat = δt * ((1000.|W_m3) / volumetric_heat_capacity);
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
                 let β = (δt * (volumetric_rate_of_heat_capacity_perfusion / volumetric_heat_capacity)).unitless();
-                next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction;
+                next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction + metabolic_heat.K();
             }}};
             let mut next_temperature = next_temperature.as_mut();
             let range = 1..size.z-1;
@@ -382,8 +376,8 @@ fn main() -> Result {
         // T(y,z) (x sum)
         let ref mut Tyz = Tyz.0.image.0;
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
-            Tyz[xy{x: image_x, y: image_y}] =
-                (0..size.x).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}] /*- initial_blood_temperature.K()*/).sum::<f64>() as f32;
+            fn mean<I:IntoIterator<IntoIter:ExactSizeIterator>,S:std::iter::Sum<I::Item>+std::ops::Div>(iter: I) -> S::Output where u32:Into<S> { let iter = iter.into_iter(); let len = iter.len(); iter.sum::<S>() / (len as u32).into() }
+            Tyz[xy{x: image_x, y: image_y}] = mean::<_,f64>((1..size.x-1).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}])) as f32;
         }}
 
         let stop = *stop;
