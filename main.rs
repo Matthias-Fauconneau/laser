@@ -231,7 +231,7 @@ fn main() -> Result {
         {
             let task = |z0, z1, mut next_temperature_chunk: Volume<&mut[float]>| for z in z0..z1 { for y in 1..size.y-1 { for x in 1..size.x-1 {
                 let id = material_volume[xyz{x, y , z}];
-                let Material{mass_density: density, specific_heat_capacity,thermal_conductivity,..} = material_list[id as usize];
+                let Material{mass_density: density, specific_heat_capacity, thermal_conductivity,..} = material_list[id as usize];
                 let volumetric_heat_capacity = density * specific_heat_capacity; // J/K·m³
                 let thermal_diffusivity = thermal_conductivity / volumetric_heat_capacity; // dt(T) = k/(cρ) ΔT = α ΔT (α≡k/(cρ)) [m²/s]
                 // dt(Q) = c ρ dt(T) : heat energy
@@ -246,16 +246,18 @@ fn main() -> Result {
                 let thermal_conduction = dxxT + dyyT + dzzT; // Cartesian: ΔT = dxx(T) + dyy(T) + dzz(T) {=> /δx²}
                 let α = thermal_diffusivity / sq(δx) * δt;
                 // Blood flow
-                let blood_density = 1000.|kg_m3;
+                //let blood_density = 1000.|kg_m3;
                 let blood_specific_heat_capacity = 3595.|J_K·kg;
-                let capillary_blood_speed = 1.|mm_s;
+                /*let capillary_blood_speed = 1.|mm_s;
                 let capillary_area = 100.|µm2;
                 let capillary_density = 1000.|_mm2;
                 let blood_flux_density : FluxDensity = capillary_blood_speed * capillary_area * capillary_density;
-                let blood_volumetric_heat_capacity = blood_density * blood_specific_heat_capacity; // J/K·m³
-                let blood_heat_flux_density_per_T = blood_volumetric_heat_capacity * blood_flux_density;
+                let blood_volumetric_heat_capacity = blood_density * blood_specific_heat_capacity; // J/K·m³*/
+                let volumetric_rate_of_mass_perfusion = 0.5|kg_m3s;
+                let volumetric_rate_of_heat_capacity_perfusion : VolumetricPowerCapacity = volumetric_rate_of_mass_perfusion * blood_specific_heat_capacity;
+                //let blood_heat_flux_density_per_T = blood_volumetric_heat_capacity * blood_flux_density;
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
-                let β = (δt * (δx * (blood_heat_flux_density_per_T / volumetric_heat_capacity))).unitless();
+                let β = (δt * (volumetric_rate_of_heat_capacity_perfusion / volumetric_heat_capacity)).unitless();
                 next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction;
             }}};
             let mut next_temperature = next_temperature.as_mut();
@@ -270,7 +272,7 @@ fn main() -> Result {
         }
         // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
         for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
-            const q : FluxDensity = 50.|W_m2; // Heat loss through skin-air interface (evaporation, radiation, convection, conduction)
+            const q : HeatFluxDensity = 50.|W_m2; // Heat loss through skin-air interface (evaporation, radiation, convection, conduction)
             let δT = δx*(q/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
             next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K();
              // could have set adiabatic and directly offset T instead but this way is more higher order compatible
@@ -324,7 +326,7 @@ fn main() -> Result {
         let App{widget: Grid(Plots{Tt, Iz, Ir, Tyz}), state: State{stop},..} = app;
 
         // T(t) at z={probes}
-        Tt.x_values.push( δt.unwrap() * step as f64 );
+        Tt.x_values.push( δt.s() * step as f64 );
         let temperature = temperature.get_mut();
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
@@ -332,7 +334,7 @@ fn main() -> Result {
         }
 
         // axial: I(z)
-        Iz.x_values = list((0..size.z-1).map(|z| z as f64 * δx.unwrap())).into();
+        Iz.x_values = list((0..size.z-1).map(|z| z as f64 * δx.m())).into();
         let count = {
             let r = f32::ceil(intensity.z_radius) as i32;
             (-r ..= r).map(|y| (-r ..= r).filter(move |&x| vector::sq(xy{x,y}) as f32 <= sq(intensity.z_radius))).flatten().count()
@@ -341,13 +343,13 @@ fn main() -> Result {
             let power : Power = (intensity.z[z as usize].load(Relaxed) as f64) * laser.sample_power(step * ray_per_step);
             let area : Area = count as f64 * sq(δx);
             //assert_eq!(area, π*sq(intensity.z_radius as f64)*sq(δx));
-            let intensity : SI::Intensity = power / area;
-            intensity.unwrap()
+            let intensity : EnergyFluxDensity = power / area;
+            intensity.W_m2()
         }).collect();
         Iz.need_update();
 
         // radial: I(r)
-        Ir.x_values = list((0..size.x/2-1).map(|r| (r as f64) * δx.unwrap())).into();
+        Ir.x_values = list((0..size.x/2-1).map(|r| (r as f64) * δx.m())).into();
         Ir.sets[0] = (0..size.x/2-1).map(|r| {
             let mut count = 0;
             for y in -((r+1) as i16) ..= (r+1) as i16 {
@@ -361,8 +363,8 @@ fn main() -> Result {
             let power : Power = (intensity.r[r as usize].load(Relaxed) as f64) * laser.sample_power(step * ray_per_step);
             let area : Area = count as f64 * δx * δx; // Ring (discretized)
             //assert_eq!(sq(δx) * 2.*π * (r+1) as f64, area);
-            let intensity : SI::Intensity = power / area;
-            intensity.unwrap()
+            let intensity : EnergyFluxDensity = power / area;
+            intensity.W_m2()
         }).collect();
         for position in iter::repeat_with(|| { let (position, _) = laser.sample(random); position }).take(ray_per_step) {
             let xyz{x,y,..} = position;
@@ -370,11 +372,11 @@ fn main() -> Result {
             let r = f64::sqrt(vector::sq(xy{x,y}) as f64);
             let power : Power = laser.sample_power(ray_per_step);
             let area : Area = sq(δx) * 2.*π * r; // Ring
-            let intensity : SI::Intensity = power / area;
+            let intensity : EnergyFluxDensity = power / area;
             let r = r as usize;
             if r < laser_profile.len() { laser_profile[r] += intensity; }
         }
-        Ir.sets[1] = list(laser_profile.iter().map(|&I| I.unwrap() / (step as f64))).into();
+        Ir.sets[1] = list(laser_profile.iter().map(|&I| I.W_m2() / (step as f64))).into();
         Ir.need_update();
 
         // T(y,z) (x sum)

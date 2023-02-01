@@ -35,28 +35,32 @@ impl<Q:~const Float> const std::ops::BitOr<Unit<Q>> for f64 { type Output = Q; f
 pub trait Mul<Q> { type Output : Float; }
 impl<Q:Float> Mul<Quantity<0,0,0,0>> for Q { type Output = Q; }
 impl<Q:Float+NotUnitless> Mul<Q> for Quantity<0,0,0,0> { type Output = Q; }
-impl Mul<Quantity<1,0,0,0>> for Quantity<-1,0,0,0> { type Output = Quantity<0,0,0,0>; } // 1/T·T
-impl Mul<Quantity<-1,0,0,0>> for Quantity<1,0,0,0> { type Output = Quantity<0,0,0,0>; } // T·1/T
-impl Mul<Quantity<0,1,0,0>> for Quantity<0,-1,0,0> { type Output = Quantity<0,0,0,0>; } // 1/L·L
-impl Mul<Quantity<0,1,0,0>> for Quantity<0,1,0,0> { type Output = Quantity<0,2,0,0>; } // L·L
-impl Mul<Quantity<0,1,0,0>> for Quantity<0,2,0,0> { type Output = Quantity<0,3,0,0>; } // L·L²
-impl Mul<Quantity<-1,-1,0,0>> for Quantity<0,1,0,0> { type Output = Quantity<-1,0,0,0>; } // Length·1/LT=Rate
-//impl Mul<Quantity<-1,2,0,0>> for Quantity<-1,2,0,0> { type Output = Quantity<-2,4,0,0>; } // Diffusivity²
-//impl Mul<Quantity<0,3,0,0>> for Quantity<-2,1,0,0> { type Output = Quantity<-2,4,0,0>; } // Volume·Acceleration
-impl Mul<Quantity<0,0,0,-1>> for Quantity<0,0,0,1> { type Output = Quantity<0,0,0,0>; } // 1/K·K
-impl Mul<Quantity<0,3,0,0>> for Quantity<0,-3,1,0> { type Output = Quantity<0,0,1,0>; } // MassDensity·Volume
-impl Mul<Quantity<0,-1,0,1>> for Quantity<0,1,0,0> { type Output = Quantity<0,0,0,1>; } // Length*TemperatureGradient=Temperature
-impl Mul<Quantity<-2,2,0,-1>> for Quantity<0,0,1,0> { type Output = Quantity<-2,2,1,-1>; } // Mass·SpecificHeatCapacity
-impl Mul<Quantity<-2,2,0,-1>> for Quantity<0,-3,1,0> { type Output = Quantity<-2,-1,1,-1>; } // MassDensity·SpecificHeatCapacity=VolumetricHeatCapacity
-impl Mul<Quantity<0,0,0,1>> for Quantity<-2,2,0,-2> { type Output = Quantity<-2,2,0,-1>; } // SpecificHeatCapacity/K·K
-impl Mul<Quantity<0,0,0,1>> for Quantity<-3,1,1,-2> { type Output = Quantity<-3,1,1,-1>; } // ThermalConductivity/K·K
-impl Mul<Quantity<-3,2,1,0>> for Quantity<1,0,0,0> { type Output = Quantity<-2,2,1,0>; } // Power·Time
-impl Mul<Quantity<0,2,0,0>> for Quantity<-1,1,0,0> { type Output = Quantity<-1,3,0,0>; } // Speed·Area=FlowRate
-impl Mul<Quantity<0,-2,0,0>> for Quantity<-1,3,0,0> { type Output = Quantity<-1,1,0,0>; } // FlowRate·ByArea=Speed
-impl Mul<Quantity<-1,1,0,0>> for Quantity<-2,-1,1,-1> { type Output = Quantity<-3,0,1,-1>; } // VolumetricHeatCapacity·Speed=HeatFluxDensity/Temperature
-impl Mul<Quantity<0,0,0,1>> for Quantity<-3,0,1,-1> { type Output = Quantity<-3,0,1,0>; } // (HeatFluxDensity/Temperature)·Temperature=HeatFluxDensity
-impl Mul<Quantity<-1,-1,0,1>> for Quantity<0,1,0,0> { type Output = Quantity<-1,0,0,1>; } // Length·Θ/LT=TemperatureRate
-impl Mul<Quantity<-1,0,0,1>> for Quantity<1,0,0,0> { type Output = Quantity<0,0,0,1>; } // Time·TemperatureRate=Temperature
+macro_rules! impl_Mul { ([$a0:literal,$a1:literal,$a2:literal,$a3:literal], [$b0:literal,$b1:literal,$b2:literal,$b3:literal]) => {
+    impl Mul<Quantity<$b0,$b1,$b2,$b3>> for Quantity<$a0,$a1,$a2,$a3> { type Output = Quantity<{$a0+$b0},{$a1+$b1},{$a2+$b2},{$a3+$b3}>; } } }
+impl_Mul!{[-1,0,0,0], [1,0,0,0]} // 1/T·T
+impl_Mul!{[1,0,0,0], [-1,0,0,0]}// T·1/T
+impl_Mul!{[0,-1,0,0], [0,1,0,0]}// 1/L·L
+impl_Mul!{[0,1,0,0], [0,1,0,0]}// L·L
+impl_Mul!{[0,2,0,0], [0,1,0,0]}// L·L²
+impl_Mul!{[0,1,0,0], [-1,-1,0,0]}// Length·1/LT=Rate
+//impl_Mul!{[-1,2,0,0], [-1,2,0,0]}// Diffusivity²
+//impl_Mul!{[-2,1,0,0], [0,3,0,0]}// Volume·Acceleration
+impl_Mul!{[0,0,0,1], [0,0,0,-1]}// 1/K·K
+impl_Mul!{[0,-3,1,0], [0,3,0,0]}// MassDensity·Volume
+impl_Mul!{[0,1,0,0], [0,-1,0,1]}// Length*TemperatureGradient=Temperature
+impl_Mul!{[0,0,1,0], [-2,2,0,-1]}// Mass·SpecificHeatCapacity
+impl_Mul!{[0,-3,1,0], [-2,2,0,-1]}// MassDensity·SpecificHeatCapacity=VolumetricHeatCapacity
+impl_Mul!{[-2,2,0,-2], [0,0,0,1]}// SpecificHeatCapacity/K·K
+impl_Mul!{[-3,1,1,-2], [0,0,0,1]}// ThermalConductivity/K·K
+impl_Mul!{[1,0,0,0], [-3,2,1,0]}// Time·Power
+impl_Mul!{[-1,-3,1,0],[-2,2,0,-1]} // VolumetricMassRate·SpecificHeatCapacity
+//impl_Mul!{[-2,2,0,-1],[-1,-3,1,0]} // SpecificHeatCapacity·VolumetricMassRate
+//impl_Mul!{[-1,1,0,0], [0,2,0,0]}// Speed·Area=FlowRate
+//impl_Mul!{[-1,3,0,0], [0,-2,0,0]}// FlowRate·ByArea=Speed
+//impl_Mul!{[-2,-1,1,-1], [-1,1,0,0]}// VolumetricHeatCapacity·Speed=HeatFluxDensity/Temperature
+//impl_Mul!{[-3,0,1,-1], [0,0,0,1]}// (HeatFluxDensity/Temperature)·Temperature=HeatFluxDensity
+//impl_Mul!{[0,1,0,0], [-1,-1,0,1]}// Length·Θ/LT=TemperatureRate
+//impl_Mul!{[1,0,0,0], [-1,0,0,1]}// Time·TemperatureRate=Temperature
 
 impl<B: Float, const A0: int, const A1: int, const A2: int, const A3: int> std::ops::Mul<B> for Quantity<A0,A1,A2,A3> where Self:Mul<B> {
     type Output = <Self as Mul<B>>::Output;
@@ -68,17 +72,21 @@ pub trait Div<Q> { type Output : Float; }
 impl<Q> Div<Q> for Q { type Output = Quantity<0,0,0,0>; } // Q/Q=1
 impl<Q:Float+NotUnitless> Div<Quantity<0,0,0,0>> for Q { type Output = Q; } // Q/1=Q
 //impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> Div<Quantity<A0,A1,A2,A3>> for Quantity<0,0,0,0> { type Output = Quantity<{-A0},{-A1},{-A2},{-A3}>; } // 1/Q
-impl Div<Quantity<0,0,0,1>> for Quantity<0,0,0,0> { type Output = Quantity<0,0,0,-1>; } // 1/Temperature
-impl Div<Quantity<-1,0,0,0>> for Quantity<0,0,0,0> { type Output = Quantity<1,0,0,0>; } // 1/(1/Time)
-impl Div<Quantity<-1,2,0,0>> for Quantity<0,2,0,0> { type Output = Quantity<1,0,0,0>; } // Length²/Diffusivity=Time
-impl Div<Quantity<0,2,0,0>> for Quantity<-1,2,0,0> { type Output = Quantity<-1,0,0,0>; } // Diffusivity/Length²=1/Time
-impl Div<Quantity<0,-3,1,0>> for Quantity<-1,-1,1,0> { type Output = Quantity<-1,2,0,0>; } // DynamicViscosity/MassDensity=Diffusivity
-impl Div<Quantity<-2,2,1,-1>> for Quantity<-2,2,1,0> { type Output = Quantity<0,0,0,1>; } // Energy/HeatCapacity=Temperature
-impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,1,1,-1> { type Output = Quantity<-1,2,0,0>; } // ThermalConductivity/VolumetricHeatCapacity=Diffusivity
-impl Div<Quantity<0,2,0,0>> for Quantity<-3,2,1,0> { type Output = Quantity<-3,0,1,0>; } // Power/Area=EnergyFluxDensity
-impl Div<Quantity<-3,1,1,-1>> for Quantity<-3,0,1,0> { type Output = Quantity<0,-1,0,1>; } // EnergyFluxDensity/ThermalConductivity=TemperatureGradient
-//impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,0,1,0> { type Output = Quantity<-1,-1,0,1>; } // HeatFluxDensity/VolumetricHeatCapacity=Θ/LT
-impl Div<Quantity<-2,-1,1,-1>> for Quantity<-3,0,1,-1> { type Output = Quantity<-1,-1,0,0>; } // (HeatFluxDensity/Θ)/VolumetricHeatCapacity=1/LT
+macro_rules! impl_Div { ([$a0:literal,$a1:literal,$a2:literal,$a3:literal], [$b0:literal,$b1:literal,$b2:literal,$b3:literal]) => {
+    impl Div<Quantity<$b0,$b1,$b2,$b3>> for Quantity<$a0,$a1,$a2,$a3> { type Output = Quantity<{$a0-$b0},{$a1-$b1},{$a2-$b2},{$a3-$b3}>; } } }
+impl_Div!{[0,0,0,0], [0,0,0,1]}// 1/Temperature
+impl_Div!{[0,0,0,0], [-1,0,0,0]}// 1/(1/Time)
+impl_Div!{[0,2,0,0], [-1,2,0,0]}// Length²/Diffusivity=Time
+impl_Div!{[-1,2,0,0], [0,2,0,0]} // Diffusivity/Length²=1/Time
+impl_Div!{[-1,-1,1,0], [0,-3,1,0]}// DynamicViscosity/MassDensity=Diffusivity
+impl_Div!{[-2,2,1,0], [-2,2,1,-1]}// Energy/HeatCapacity=Temperature
+impl_Div!{[-3,1,1,-1], [-2,-1,1,-1]}// ThermalConductivity/VolumetricHeatCapacity=Diffusivity
+impl_Div!{[-3,2,1,0], [0,2,0,0]}// Power/Area=EnergyFluxDensity
+impl_Div!{[-3,0,1,0], [-3,1,1,-1]}// EnergyFluxDensity/ThermalConductivity=TemperatureGradient
+impl_Div!{[-3,-1,1,-1], [-2,-1,1,-1]}// VolumetricPowerCapacity/VolumetricHeatCapacity=1/T
+//impl_Div!{[-3,0,1,0], [-2,-1,1,-1]}// HeatFluxDensity/VolumetricHeatCapacity=Θ/LT
+//impl_Div!{[-3,0,1,-1], [-2,-1,1,-1]}// (HeatFluxDensity/Θ)/VolumetricHeatCapacity=1/LT
+//impl_Div!{[-3,0,1,-1], [-2,2,0,-1]}// (HeatFluxDensity/Θ)/SpecificHeatCapacity=1/T
 
 impl<B:Float, const A0: int, const A1: int, const A2: int, const A3: int> std::ops::Div<B> for Quantity<A0,A1,A2,A3> where Self:Div<B> {
     type Output = <Self as Div<B>>::Output;
@@ -145,7 +153,7 @@ macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:i
 } }
 
 // time [T], length [L], mass [M], temperature [θ]
-quantity_unit!([1,0,0,0] second Time);
+quantity_unit!([1,0,0,0] sec Time);
 quantity_unit!([0,1,0,0] m Length );
 quantity_unit!([0,0,1,0] kg Mass);
 quantity_unit!([0,0,0,1] K Temperature);
@@ -158,6 +166,7 @@ quantity_unit!([-2,1,0,0] m_s2 Acceleration);
 quantity_unit!([-1,2,0,0] m2_s Diffusivity);
 quantity_unit!([-1,3,0,0] m3_s FlowRate);
 quantity_unit!([0,-3,1,0] kg_m3 MassDensity);
+quantity_unit!([-1,-3,1,0] kg_m3s VolumetricMassRate);
 quantity_unit!([-2,2,1,0] J Energy); //T⁻²L²M
 quantity_unit!([-3,2,1,0] W Power); // J/s
 quantity_unit!([-3,0,1,0] W_m2 EnergyFluxDensity);
@@ -167,14 +176,18 @@ quantity_unit!([-2,-1,1,-1] J_K·m3 VolumetricHeatCapacity);
 quantity_unit!([-3,1,1,-1] W_m·K ThermalConductivity);
 quantity_unit!([-1,-1,1,0] Pa·s DynamicViscosity); //kg/m/s
 quantity_unit!([0,0,0,-1] _K ThermalExpansion);
+quantity_unit!([-3,-1,1,-1] W_m3K VolumetricPowerCapacity);
 
 pub type ThermalDiffusivity = Diffusivity; // m²/s
 //pub type KinematicViscosity = Diffusivity; // m²/s
-pub type FluxDensity = Speed;
+//pub type FluxDensity = Speed;
 pub type HeatFluxDensity = EnergyFluxDensity;
+pub type PerfusionRate = VolumetricMassRate; // kg/m³/s
 
-quantity_unit!([-2,2,0,-2] J_K2·kg SpecificHeatCapacity_K);
-quantity_unit!([-3,1,1,-2] W_m·K2 ThermalConductivity_K);
+quantity_unit!([-2,2,0,-2] J_K2·kg SpecificHeatCapacityPerK);
+quantity_unit!([-3,1,1,-2] W_m·K2 ThermalConductivityPerK);
+
+impl Time { #[allow(non_snake_case)] pub fn s(self) -> f64 { self.sec() } }
 
 pub struct MegaUnit<Q>(std::marker::PhantomData<Q>);
 pub const fn mega_unit<Q>() -> MegaUnit<Q> { MegaUnit(std::marker::PhantomData) }
