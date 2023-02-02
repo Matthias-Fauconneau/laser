@@ -46,21 +46,34 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
     fn event(&mut self, size: size, context: &mut Option<ui::widget::EventContext>, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
-use {vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::{text, bold}}};
+use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::{text, bold}}};
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
     let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
+    let mut histogram = vec![0; target.size.x as usize];
+    for v in source.data { histogram[((v-min)/(max-min)*(target.size.x-1) as f32) as usize] += 1; }
+    let max_i = histogram.len()-1-histogram.iter().rev().scan(0, |sum, &h| { *sum += h; Some(*sum) }).position(|sum| sum>32).unwrap();
+    let max = min+(max_i as f32)/(target.size.x as f32)*(max-min);
+    //let MinMax{min,max} = minmax(source.data.into_iter().filter(|&v| histogram[((v-min)/(max-min)*(target.size.x-1) as f32) as usize]>source.size.y/2).copied()).unwrap();
     let [num, den] = if source.size.x*target.size.y > source.size.y*target.size.x { [source.size.x, target.size.x] } else { [source.size.y, target.size.y] };
     for y in 0..std::cmp::min(source.size.y*den/num, target.size.y) {
         for x in 0..std::cmp::min(source.size.x*den/num, target.size.x) {
             let v = source[xy{x: x*num/den, y: y*num/den}];
-            target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into()
+            target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(f32::min(v/max, 1.))) } else { bgr{b: PQ10(f32::min(-v/-min, 1.)), g:0, r:0} }.into()
         }
     }
-    for x in 0..target.size.x {
-        let v = min+(x as f32)/(target.size.x as f32)*(max-min);
-        let c = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into();
-        for y in target.size.y/2..target.size.y*3/4 { target[xy{x,y}] = c; }
+    let mut histogram = vec![0; target.size.x as usize];
+    for v in source.data { histogram[(f32::clamp((v-min)/(max-min), 0., 1.)*(target.size.x-1) as f32) as usize] += 1; }
+    let histogram_max = *histogram.iter().max().unwrap();
+    {
+        let mut target = target.slice_mut(xy{x: 0, y: target.size.y/2}, xy{x: target.size.x, y:target.size.y/4});
+        fill(&mut target, background.into());
+        for x in 0..target.size.x {
+            let v = min+(x as f32)/(target.size.x as f32)*(max-min);
+            let c = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into();
+            //for y in lerp(histogram[x as usize] as f32 / histogram_max as f32, target.size.y, 0)..target.size.y { target[xy{x,y}] = c; }
+            if histogram[x as usize] > 0 { let y0 = lerp(f32::ln(histogram[x as usize] as f32)/f32::ln(histogram_max as f32), target.size.y, 0); for y in y0..target.size.y { target[xy{x,y}] = c; } }
+        }
     }
     for (i, v) in [min,max].iter().enumerate() {
         let mut target = target.slice_mut(xy{x: i as u32*2*target.size.x/3, y: target.size.y*3/4}, xy{x: target.size.x/3, y:target.size.y/4});

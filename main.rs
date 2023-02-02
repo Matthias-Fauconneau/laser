@@ -24,6 +24,10 @@ impl<const R: usize, const C: usize> RayCell<R,C> where [(); R*C/8]: {
 fn main() -> Result {
     let size = xyz{x: 257, y: 257, z: 65};
 
+    // Body (Blood, Skin)
+    const volumetric_rate_of_mass_perfusion : VolumetricMassRate = 0.5|kg_m3s;
+    const heat_loss_through_skin_air_interface : HeatFluxDensity = 50.|W_m2; // evaporation, radiation, convection, conduction
+
     const anisotropy : f32 = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
     let scattering = |reduced_scattering_coefficient| reduced_scattering_coefficient / (anisotropy as f64);
     type DMaterial = self::Material<Dimensionalized>;
@@ -247,7 +251,6 @@ fn main() -> Result {
                 let α = thermal_diffusivity / sq(δx) * δt;
                 // Blood flow
                 let blood_specific_heat_capacity = 3595.|J_K·kg;
-                let volumetric_rate_of_mass_perfusion = 0.5|kg_m3s;
                 let volumetric_rate_of_heat_capacity_perfusion : VolumetricPowerCapacity = volumetric_rate_of_mass_perfusion * blood_specific_heat_capacity;
                 let metabolic_heat = δt * ((1000.|W_m3) / volumetric_heat_capacity);
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
@@ -266,8 +269,7 @@ fn main() -> Result {
         }
         // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
         for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
-            const q : HeatFluxDensity = 50.|W_m2; // Heat loss through skin-air interface (evaporation, radiation, convection, conduction)
-            let δT = δx*(q/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
+            let δT = δx*(heat_loss_through_skin_air_interface/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
             next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K();
              // could have set adiabatic and directly offset T instead but this way is more higher order compatible
         } }
@@ -324,7 +326,7 @@ fn main() -> Result {
         let temperature = temperature.get_mut();
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
-            Tt.sets[i].push( temperature[p] /*- initial_blood_temperature.K()*/ );
+            Tt.sets[i].push( temperature[p] );
         }
 
         // axial: I(z)
@@ -382,7 +384,7 @@ fn main() -> Result {
 
         let stop = *stop;
         if step == stop {
-            let path = format!("out/a={a},s={s},d={d},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
+            let path = format!("out/a={a},s={s},d={d},q={heat_loss_through_skin_air_interface},w={volumetric_rate_of_mass_perfusion},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
             fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTyz: ({Tyz:?}, {:?})", Tyz.data)).unwrap();
             write_image(path+".avif", app);
         }
