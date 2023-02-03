@@ -1,6 +1,6 @@
 #![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
-use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant, fs};
+use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant};
 mod SI; use SI::*;
 #[derive(PartialEq,Clone)] struct Material<S: System> {
     mass_density: MassDensity, // ρ [kg/m³]
@@ -10,7 +10,7 @@ mod SI; use SI::*;
     scattering_coefficient: S::Scalar<ByLength>, // μs [m¯¹]
 }
 
-mod volume; use {ui::Result, num::sq, vector::{xy, xyz, vec3}, atomic_float::AtomicF64, volume::{product, size, Volume}};
+mod volume; use {ui::Result, num::sq, vector::{xy, xyz, vec3}, atomic_float::AtomicF32, volume::{product, size, Volume}};
 mod view;
 
 struct RayCell<const R: usize, const C: usize>(Box<[u8; R*C/8]>) where [(); R*C/8]:;
@@ -69,10 +69,10 @@ fn main() -> Result {
         "cancer" => {
             let height = 4.|cm;
             let mut material_volume = Volume::from_iter(size, iter::from_fn(|| Some(id(tissue))));
-            let diameter = 5.|mm;
-            let center_z = diameter/2. + (1e-3|m);
+            let cancer_diameter = 5.|mm;
+            let center_z = cancer_diameter/2. + (1e-3|m);
             let map = |x| map(size, height, x);
-            let radius = diameter/2.;
+            let radius = cancer_diameter/2.;
             for z in map(center_z-radius) ..= map(center_z+radius) {
                 for y in size.y/2-map(radius) ..= size.y/2+map(radius) {
                     for x in size.x/2-map(radius) ..= size.x/2+map(radius) {
@@ -136,7 +136,7 @@ fn main() -> Result {
     }
 
     let ref laser = Laser{
-        diameter: ((8.|mm) / δx).f32(),
+        diameter: ((0.6|mm) / δx).f32(),
         position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5},
         direction: xyz{x: 0., y: 0., z: 1.},
         power: 1.|W,
@@ -148,8 +148,8 @@ fn main() -> Result {
     const threads : usize = 8;
     const ray_per_step : usize = ray_per_thread * threads;
 
-    type float = f64;
-    type AtomicF = AtomicF64;
+    type float = f32;
+    type AtomicF = AtomicF32;
 
     const intensity_cells: usize = 128;
     type RayCell = self::RayCell<ray_per_thread, intensity_cells>;
@@ -179,7 +179,7 @@ fn main() -> Result {
                         let volume = δx*δx*δx;
                         let heat_capacity : HeatCapacity = density * volume * specific_heat_capacity; // J/K
                         let δT : Temperature = δt * laser.sample_power(ray_per_step) / heat_capacity;
-                        temperature[index].fetch_add(δT.K(), Relaxed);
+                        temperature[index].fetch_add(δT.K() as f32, Relaxed);
                         break;
                     }
 
@@ -255,7 +255,7 @@ fn main() -> Result {
                 let metabolic_heat = δt * ((1000.|W_m3) / volumetric_heat_capacity);
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
                 let β = (δt * (volumetric_rate_of_heat_capacity_perfusion / volumetric_heat_capacity)).unitless();
-                next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) * T(0,0,0) + α * thermal_conduction + metabolic_heat.K();
+                next_temperature_chunk[xyz{x, y, z: z-z0}] = (1.-β) as f32 * T(0,0,0) + α.unitless() as f32 * thermal_conduction + metabolic_heat.K() as f32;
             }}};
             let mut next_temperature = next_temperature.as_mut();
             let range = 1..size.z-1;
@@ -270,7 +270,7 @@ fn main() -> Result {
         // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
         for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
             let δT = δx*(heat_loss_through_skin_air_interface/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
-            next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K();
+            next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K()  as f32;
              // could have set adiabatic and directly offset T instead but this way is more higher order compatible
         } }
         for y in 0..size.y { for x in 0..size.x { next_temperature[xyz{x, y, z: size.z-1}] = next_temperature[xyz{x, y, z: size.z-2}]; } } // Bottom: Sets ghost points to temperature of point above
@@ -296,6 +296,8 @@ fn main() -> Result {
     let mut laser_profile = [0.|W_m2].repeat((size.x/2-1) as usize);
     let mut temperature = Volume::<Box<[AtomicF]>>::default(size);
     let mut next_temperature = Volume::<Box<[AtomicF]>>::default(size);
+    let mut time_averaged_temperature = Volume::<Box<[f32]>>::default(size);
+    let mut thermal_dose = Volume::<Box<[f32]>>::default(size);
 
     let Ir_z = 2.|mm;
     let mut intensity = IntensitySum{z_radius: ((1.|mm) / δx).f32(), r_z: (Ir_z / δx).f32() as u16,  ..default()};
@@ -308,7 +310,8 @@ fn main() -> Result {
     let Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
     let Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
 
-    let Tyz = LabeledImage::new("Temperature over y,z (x projected by summing)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|T| (T as f64|K).to_string()));
+    let _Tyz = LabeledImage::new("Temperature difference over y,z (average over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|T| (T as f64|K).to_string()));
+    let Tdyz = LabeledImage::new("Thermal dose over y,z (maximum over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|Td| format!("{Td}")));
 
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
     struct State { stop: usize }
@@ -318,14 +321,23 @@ fn main() -> Result {
         //use itertools::Itertools; println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
         step += 1;
 
-        let App{widget: Grid(Plots{Tt, Iz, Ir, Tyz}), state: State{stop},..} = app;
+        let temperature = temperature.get_ref();
+        for (time_averaged_temperature, temperature) in time_averaged_temperature.data.iter_mut().zip(temperature.data) {
+            let α = (δt/(60.|sec)).unitless() as f32;
+            *time_averaged_temperature = (1.-α)* (*time_averaged_temperature) + α*temperature;
+        }
+        for (thermal_dose, temperature) in thermal_dose.data.iter_mut().zip(&*time_averaged_temperature.data) {
+            let T = initial_blood_temperature + (*temperature as f64|K);
+            if T > 43.|C { *thermal_dose += (δt/(60.|sec)).unitless() as f32 * f32::powf(2., (T - (43.|C)).K() as f32); }
+        }
+
+        let App{widget: Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz}), state: State{stop},..} = app;
 
         // T(t) at z={probes}
         Tt.x_values.push( δt.s() * step as f64 );
-        let temperature = temperature.get_mut();
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
-            Tt.sets[i].push( temperature[p] );
+            Tt.sets[i].push( temperature[p] as f64 );
         }
 
         // axial: I(z)
@@ -374,22 +386,28 @@ fn main() -> Result {
         Ir.sets[1] = list(laser_profile.iter().map(|&I| I.W_m2() / (step as f64))).into();
         Ir.need_update();
 
-        // T(y,z) (x sum)
+        /*// T(y,z) (mean x)
         let ref mut Tyz = Tyz.0.image.image;
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
             fn mean<I:IntoIterator<IntoIter:ExactSizeIterator>,S:std::iter::Sum<I::Item>+std::ops::Div>(iter: I) -> S::Output where u32:Into<S> { let iter = iter.into_iter(); let len = iter.len(); iter.sum::<S>() / (len as u32).into() }
             Tyz[xy{x: image_x, y: image_y}] = mean::<_,f64>((1..size.x-1).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}])) as f32;
+        }}*/
+
+        // Td(y,z) (max x)
+        let ref mut Tdyz = Tdyz.0.image.image;
+        for image_y in 0..Tdyz.size.y { for image_x in 0..Tdyz.size.x {
+            Tdyz[xy{x: image_x, y: image_y}] = (1..size.x-1).map(|volume_x| thermal_dose[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}]).reduce(f32::max).unwrap();
         }}
 
         let stop = *stop;
         if step == stop {
             let path = format!("out/a={a},s={s},d={d},q={heat_loss_through_skin_air_interface},w={volumetric_rate_of_mass_perfusion},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
-            fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTyz: ({Tyz:?}, {:?})", Tyz.data)).unwrap();
+            //std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTdyz: ({Tdyz:?}, {:?})", Tdyz.data)).unwrap();
             write_image(path+".avif", app);
         }
         Ok(step <= stop)
     };
     let actions = [(' ', |app:&mut App<State,_>| app.state.stop *= 2)];
     let ref actions = actions.each_ref().map(|(key,closure)| (*key, closure as &_));
-    ui::run("Laser", &mut Idle{app: App{state: State{stop: 64}, widget: Grid(Plots{Tt, Iz, Ir, Tyz}), actions}, idle})
+    ui::run("Laser", &mut Idle{app: App{state: State{stop: 1024}, widget: Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz}), actions}, idle})
 }

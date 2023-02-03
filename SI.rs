@@ -27,6 +27,8 @@ impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> std::ops::S
     fn sub(self, b: Self) -> Self::Output { Self(self.0.sub(b.0)) }
 }
 
+impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> std::cmp::PartialOrd for Quantity<A0,A1,A2,A3> { fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { self.0.partial_cmp(&other.0) } }
+
 pub struct Unit<Q>(std::marker::PhantomData<Q>);
 pub const fn unit<Q>() -> Unit<Q> { Unit(std::marker::PhantomData) }
 impl<Q:~const Float> const std::ops::BitOr<Unit<Q>> for f64 { type Output = Q; fn bitor(self, _: Unit<Q>) -> Self::Output { Q::wrap(self) } }

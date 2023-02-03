@@ -50,10 +50,10 @@ use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, u
 pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl Fn(f32)->String) {
     let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
-    let mut histogram = vec![0; target.size.x as usize];
+    /*let mut histogram = vec![0; target.size.x as usize];
     for v in source.data { histogram[((v-min)/(max-min)*(target.size.x-1) as f32) as usize] += 1; }
     let max_i = histogram.len()-1-histogram.iter().rev().scan(0, |sum, &h| { *sum += h; Some(*sum) }).position(|sum| sum>32).unwrap();
-    let max = min+(max_i as f32)/(target.size.x as f32)*(max-min);
+    let max = min+(max_i as f32)/(target.size.x as f32)*(max-min);*/
     //let MinMax{min,max} = minmax(source.data.into_iter().filter(|&v| histogram[((v-min)/(max-min)*(target.size.x-1) as f32) as usize]>source.size.y/2).copied()).unwrap();
     let [num, den] = if source.size.x*target.size.y > source.size.y*target.size.x { [source.size.x, target.size.x] } else { [source.size.y, target.size.y] };
     for y in 0..std::cmp::min(source.size.y*den/num, target.size.y) {
@@ -79,7 +79,7 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl F
         }
     }
     for (i, &v) in [min,max].iter().enumerate() {
-        let mut target = target.slice_mut(xy{x: i as u32*2*target.size.x/3, y: target.size.y*3/4}, xy{x: target.size.x/3, y:target.size.y/4});
+        let mut target = target.slice_mut(xy{x: i as u32*target.size.x/2, y: target.size.y*3/4}, xy{x: target.size.x/2, y:target.size.y/4});
         fill(&mut target, background().into());
         let text = format!("{}", unit(v));
         let mut text = ui::text(&text);
