@@ -25,7 +25,7 @@ impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut 
         if pen < size.y {
             let size = size-xy{x: 0, y: pen};
             let ref mut target = target.slice_mut(xy{x: 0, y: pen}, size);
-            image::fill(target, 0);
+            image::fill(target, background().into());
         }
     }
     fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
@@ -46,8 +46,8 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
     fn event(&mut self, size: size, context: &mut Option<ui::widget::EventContext>, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
-use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::{text, bold}}};
-pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
+use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::text}};
+pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl Fn(f32)->String) {
     let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
     let mut histogram = vec![0; target.size.x as usize];
@@ -67,47 +67,54 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>) {
     let histogram_max = *histogram.iter().max().unwrap();
     {
         let mut target = target.slice_mut(xy{x: 0, y: target.size.y/2}, xy{x: target.size.x, y:target.size.y/4});
-        fill(&mut target, background.into());
+        fill(&mut target, background().into());
         for x in 0..target.size.x {
             let v = min+(x as f32)/(target.size.x as f32)*(max-min);
             let c = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into();
             //for y in lerp(histogram[x as usize] as f32 / histogram_max as f32, target.size.y, 0)..target.size.y { target[xy{x,y}] = c; }
-            if histogram[x as usize] > 0 { let y0 = lerp(f32::ln(histogram[x as usize] as f32)/f32::ln(histogram_max as f32), target.size.y, 0); for y in y0..target.size.y { target[xy{x,y}] = c; } }
+            if histogram[x as usize] > 0 {
+                let y0 = lerp(f32::ln(histogram[x as usize] as f32)/f32::ln(histogram_max as f32), target.size.y, 0);
+                for y in y0..target.size.y { target[xy{x,y}] = c; }
+            }
         }
     }
-    for (i, v) in [min,max].iter().enumerate() {
+    for (i, &v) in [min,max].iter().enumerate() {
         let mut target = target.slice_mut(xy{x: i as u32*2*target.size.x/3, y: target.size.y*3/4}, xy{x: target.size.x/3, y:target.size.y/4});
+        fill(&mut target, background().into());
+        let text = format!("{}", unit(v));
+        let mut text = ui::text(&text);
         let size = target.size;
-        fill(&mut target, background.into());
-        text(&format!("{v:.2}"), &[]).paint_fit(&mut target, size, xy{x: 0, y: 0});
+        let offset = xy{x: [0,(target.size.x/text.scale(target.size)-text.size().x) as i32][i], y: 0};
+        text.paint_fit(&mut target, size, offset);
     }
 }
 
 type ImageF = Image<Box<[f32]>>;
-pub struct ImageView(pub ImageF);
+pub struct ImageView { pub image: ImageF, pub unit: Box<dyn Fn(f32)->String>}
 impl Widget for ImageView {
     fn size(&mut self, size: size) -> size {
-        let ref source = self.0;
+        let ref source = self.image;
         let (num, den) = if source.size.x*size.y > source.size.y*size.x { (source.size.x, size.x) } else { (source.size.y, size.y) };
         xy{x: std::cmp::min(source.size.x*den/num, size.x), y: std::cmp::min(source.size.y*den/num, size.y)*2}
     }
-    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.0.as_ref()) }
+    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.image.as_ref(), &self.unit) }
 }
 
 pub struct Fill<T>{ widget: T, fresh: bool }
 impl<T> Fill<T> { fn new(widget: T) -> Self { Self{widget, fresh: false} } }
 impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
     if self.fresh { return Ok(()); } self.fresh = true;
-    fill(target, background.into());
+    fill(target, background().into());
     self.widget.paint(target, size, offset)
 }
 fn event(&mut self, _: size, _: &mut Option<ui::EventContext>, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
 fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 }
 
-derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::text::Text>, pub image: ImageView } }
+derive_IntoIterator! { pub struct LabelImage { pub label: Fill<ui::Text>, pub image: ImageView } }
 pub type LabeledImage = VBox<LabelImage>;
-impl LabeledImage { pub fn new(label: &'static str, image: ImageF) -> Self { Self(LabelImage{label: Fill::new(text(label, &bold)), image: ImageView(image)}) } }
+impl LabeledImage { pub fn new(label: &'static str, image: ImageF, unit: Box<dyn Fn(f32)->String>) -> Self {
+    Self(LabelImage{label: Fill::new(text(label)), image: ImageView{image, unit}}) } }
 
 pub struct App<'i, 'a, 'f, S, W> {
     pub state: S,
@@ -158,7 +165,7 @@ pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
 
 //use ui::Widget;
 pub fn write_image(path: impl AsRef<std::path::Path>, view: &mut impl Widget) {
-    let mut target = Image::zero(xy{x: 3840, y: 2400});
+    let mut target = Image::fill(xy{x: 3840, y: 2400}, background().into());
     let size = target.size;
     view.event(size, &mut None, &ui::Event::Stale).unwrap();
     view.paint(&mut target.as_mut(), size, 0.into()).unwrap();

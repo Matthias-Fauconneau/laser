@@ -297,7 +297,6 @@ fn main() -> Result {
     let mut temperature = Volume::<Box<[AtomicF]>>::default(size);
     let mut next_temperature = Volume::<Box<[AtomicF]>>::default(size);
 
-
     let Ir_z = 2.|mm;
     let mut intensity = IntensitySum{z_radius: ((1.|mm) / δx).f32(), r_z: (Ir_z / δx).f32() as u16,  ..default()};
 
@@ -309,7 +308,7 @@ fn main() -> Result {
     let Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
     let Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
 
-    let Tyz = LabeledImage::new("Temperature over y,z (x projected by summing)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}));
+    let Tyz = LabeledImage::new("Temperature over y,z (x projected by summing)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|T| (T as f64|K).to_string()));
 
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
     struct State { stop: usize }
@@ -376,7 +375,7 @@ fn main() -> Result {
         Ir.need_update();
 
         // T(y,z) (x sum)
-        let ref mut Tyz = Tyz.0.image.0;
+        let ref mut Tyz = Tyz.0.image.image;
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
             fn mean<I:IntoIterator<IntoIter:ExactSizeIterator>,S:std::iter::Sum<I::Item>+std::ops::Div>(iter: I) -> S::Output where u32:Into<S> { let iter = iter.into_iter(); let len = iter.len(); iter.sum::<S>() / (len as u32).into() }
             Tyz[xy{x: image_x, y: image_y}] = mean::<_,f64>((1..size.x-1).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}])) as f32;
