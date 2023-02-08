@@ -35,19 +35,20 @@ impl<Q:~const Float> const std::ops::BitOr<Unit<Q>> for f64 { type Output = Q; f
 
 // quantity · quantity
 pub trait Mul<Q> { type Output : Float; }
-impl<Q:Float> Mul<Quantity<0,0,0,0>> for Q { type Output = Q; }
-impl<Q:Float+NotUnitless> Mul<Q> for Quantity<0,0,0,0> { type Output = Q; }
+impl<Q:Float> Mul<Q> for Quantity<0,0,0,0> { type Output = Q; } // 1 · quantity
+pub trait NotUnitless {}
+impl<Q:Float+NotUnitless> Mul<Quantity<0,0,0,0>> for Q { type Output = Q; } // quantity · 1 // Need NotUnitless to disambiguate 1 · 1
 macro_rules! impl_Mul { ([$a0:literal,$a1:literal,$a2:literal,$a3:literal], [$b0:literal,$b1:literal,$b2:literal,$b3:literal]) => {
     impl Mul<Quantity<$b0,$b1,$b2,$b3>> for Quantity<$a0,$a1,$a2,$a3> { type Output = Quantity<{$a0+$b0},{$a1+$b1},{$a2+$b2},{$a3+$b3}>; } } }
 impl_Mul!{[-1,0,0,0], [1,0,0,0]} // 1/T·T
 impl_Mul!{[1,0,0,0], [-1,0,0,0]}// T·1/T
 impl_Mul!{[0,-1,0,0], [0,1,0,0]}// 1/L·L
+impl_Mul!{[0,0,0,1], [0,0,0,-1]}// 1/Θ·Θ
 impl_Mul!{[0,1,0,0], [0,1,0,0]}// L·L
 impl_Mul!{[0,2,0,0], [0,1,0,0]}// L·L²
 impl_Mul!{[0,1,0,0], [-1,-1,0,0]}// Length·1/LT=Rate
 //impl_Mul!{[-1,2,0,0], [-1,2,0,0]}// Diffusivity²
 //impl_Mul!{[-2,1,0,0], [0,3,0,0]}// Volume·Acceleration
-impl_Mul!{[0,0,0,1], [0,0,0,-1]}// 1/Θ·Θ
 impl_Mul!{[1,0,0,0], [-1,0,0,1]}// T·Θ/T=Θ
 impl_Mul!{[0,-3,1,0], [0,3,0,0]}// MassDensity·Volume
 impl_Mul!{[0,1,0,0], [0,-1,0,1]}// Length*TemperatureGradient=Temperature
@@ -56,7 +57,23 @@ impl_Mul!{[0,-3,1,0], [-2,2,0,-1]}// MassDensity·SpecificHeatCapacity=Volumetri
 impl_Mul!{[-2,2,0,-2], [0,0,0,1]}// SpecificHeatCapacity/Θ·Θ
 impl_Mul!{[-3,1,1,-2], [0,0,0,1]}// ThermalConductivity/Θ·Θ
 impl_Mul!{[1,0,0,0], [-3,2,1,0]}// Time·Power
-impl_Mul!{[-1,-3,1,0],[-2,2,0,-1]} // VolumetricMassRate·SpecificHeatCapacity
+impl_Mul!{[-1,-3,1,0],[-2,2,0,-1]} // VolumetricMassRate·SpecificHeatCapacity=VolumetricPowerCapacity
+impl_Mul!{[-3,0,1,-4], [0,0,0,4]} // σ·Θ⁴=EnergyFluxDensity
+macro_rules! impl_Mul_ { ([$a0:literal,$a1:literal,$a2:literal,$a3:literal], [$b0:literal,$b1:literal,$b2:literal,$b3:literal]) => {
+    impl_Mul!{[$a0,$a1,$a2,$a3], [$b0,$b1,$b2,$b3]}
+    impl NotUnitless for Quantity<{$a0+$b0},{$a1+$b1},{$a2+$b2},{$a3+$b3}> {}
+}}
+impl_Mul_!{[-1,2,1,0],[-1,1,0,0]} // h·c
+impl_Mul_!{[2,-3,-1,0], [2,-3,-1,0]}// 1/(h·c)·1/(h·c)
+impl_Mul_!{[4,-6,-2,0], [2,-3,-1,0]}// (1/(h·c))²·1/(h·c)
+impl_Mul_!{[-1,1,0,0], [6,-9,-3,0]}// c·(1/(h·c))³
+impl_Mul_!{[-2,2,1,-1],[-2,2,1,-1]} // k·k
+impl_Mul_!{[-4,4,2,-2],[-2,2,1,-1]} // k²·k
+impl_Mul_!{[-6,6,3,-3],[-2,2,1,-1]} // k³·k
+impl_Mul_!{[5,-8,-3,0], [-8,8,4,-4]}// (c·(1/(h·c))³)·k⁴
+impl_Mul_!{[0,0,0,1], [0,0,0,1]} // Θ·Θ
+impl_Mul_!{[0,0,0,2], [0,0,0,1]} // Θ²·Θ
+impl_Mul_!{[0,0,0,2], [0,0,0,2]} // Θ²·Θ²
 
 impl<B: Float, const A0: int, const A1: int, const A2: int, const A3: int> std::ops::Mul<B> for Quantity<A0,A1,A2,A3> where Self:Mul<B> {
     type Output = <Self as Mul<B>>::Output;
@@ -67,11 +84,12 @@ impl<B: Float, const A0: int, const A1: int, const A2: int, const A3: int> std::
 pub trait Div<Q> { type Output : Float; }
 impl<Q> Div<Q> for Q { type Output = Quantity<0,0,0,0>; } // Q/Q=1
 impl<Q:Float+NotUnitless> Div<Quantity<0,0,0,0>> for Q { type Output = Q; } // Q/1=Q
-//impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> Div<Quantity<A0,A1,A2,A3>> for Quantity<0,0,0,0> { type Output = Quantity<{-A0},{-A1},{-A2},{-A3}>; } // 1/Q
+//impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> Div<Quantity<A0,A1,A2,A3>> for Quantity<0,0,0,0> { type Output = Quantity<{-A0},{-A1},{-A2},{-A3}>; } // 1/Q conflicts with Q/Q, Q/1 for Q=1
 macro_rules! impl_Div { ([$a0:literal,$a1:literal,$a2:literal,$a3:literal], [$b0:literal,$b1:literal,$b2:literal,$b3:literal]) => {
     impl Div<Quantity<$b0,$b1,$b2,$b3>> for Quantity<$a0,$a1,$a2,$a3> { type Output = Quantity<{$a0-$b0},{$a1-$b1},{$a2-$b2},{$a3-$b3}>; } } }
 impl_Div!{[0,0,0,0], [0,0,0,1]}// 1/Temperature
 impl_Div!{[0,0,0,0], [-1,0,0,0]}// 1/(1/Time)
+impl_Div!{[0,0,0,0], [-2,3,1,0]}// 1/(h·c)
 impl_Div!{[0,2,0,0], [-1,2,0,0]}// Length²/Diffusivity=Time
 impl_Div!{[-1,2,0,0], [0,2,0,0]} // Diffusivity/Length²=1/Time
 impl_Div!{[-1,-1,1,0], [0,-3,1,0]}// DynamicViscosity/MassDensity=Diffusivity
@@ -81,6 +99,8 @@ impl_Div!{[-3,2,1,0], [0,2,0,0]}// Power/Area=EnergyFluxDensity
 impl_Div!{[-3,0,1,0], [-3,1,1,-1]}// EnergyFluxDensity/ThermalConductivity=TemperatureGradient
 impl_Div!{[-3,-1,1,-1], [-2,-1,1,-1]}// VolumetricPowerCapacity/VolumetricHeatCapacity
 impl_Div!{[-3,-1,1,0], [-2,-1,1,-1]}// VolumetricPowerDensity/VolumetricHeatCapacity=Θ/T
+//impl_Div!{[-1,2,1,0],[-2,2,0,0]} // h/c²
+//impl_Div!{[-2,2,1,-1],[-1,2,1,0]} // k/h
 
 impl<B:Float, const A0: int, const A1: int, const A2: int, const A3: int> std::ops::Div<B> for Quantity<A0,A1,A2,A3> where Self:Div<B> {
     type Output = <Self as Div<B>>::Output;
@@ -88,7 +108,7 @@ impl<B:Float, const A0: int, const A1: int, const A2: int, const A3: int> std::o
 }
 
 pub type Unitless = Quantity<0,0,0,0>;
-impl Unitless{
+impl Unitless {
     pub fn unitless(self) -> f64 { self.0 }
     pub fn f32(self) -> f32 { self.0 as f32 }
 }
@@ -99,7 +119,7 @@ impl std::fmt::Display for Unitless { fn fmt(&self, f: &mut std::fmt::Formatter<
 // unitless · quantity
 impl<const A0 : int, const A1 : int, const A2 : int, const A3 : int> std::ops::Mul<Quantity<A0,A1,A2,A3>> for f64 where Quantity<A0,A1,A2,A3>:NotUnitless {
     type Output = Quantity<A0,A1,A2,A3>;
-    fn mul(self, b: Quantity<A0,A1,A2,A3>) -> Self::Output { Unitless::wrap(self)*b }
+    fn mul(self, b: Self::Output) -> Self::Output { Unitless::wrap(self)*b }
 }
 
 // quantity · unitless
@@ -127,7 +147,6 @@ impl std::ops::Mul<f64> for Unitless { type Output = f64; fn mul(self, b: f64) -
 // unitless / f64
 impl std::ops::Div<f64> for Unitless { type Output = f64; fn div(self, b: f64) -> Self::Output { self.0/b } }
 
-pub trait NotUnitless {}
 macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:ident  ) => {
         #[allow(non_camel_case_types)] pub type $quantity = Quantity<$($dimensions),+>;
         impl NotUnitless for $quantity {}
@@ -162,11 +181,12 @@ quantity_unit!([-1,3,0,0] m3_s FlowRate);
 quantity_unit!([0,-3,1,0] kg_m3 MassDensity);
 quantity_unit!([-1,-3,1,0] kg_m3s VolumetricMassRate);
 quantity_unit!([-1,0,0,1] K_s TemperatureRate);
+quantity_unit!([-1,2,1,0] J_Hz/*J·s*/ PlanckConstant); // h [T⁻¹L²M]
 quantity_unit!([-2,2,1,0] J Energy); // T⁻²L²M
 quantity_unit!([-3,2,1,0] W Power);
 quantity_unit!([-3,0,1,0] W_m2 EnergyFluxDensity);
 quantity_unit!([-3,-1,1,0] W_m3 VolumetricPowerDensity);
-quantity_unit!([-2,2,1,-1] J_K HeatCapacity);
+quantity_unit!([-2,2,1,-1] J_K HeatCapacity); // cp, k
 quantity_unit!([-2,2,0,-1] J_K·kg SpecificHeatCapacity);
 quantity_unit!([-2,-1,1,-1] J_K·m3 VolumetricHeatCapacity);
 quantity_unit!([-3,1,1,-1] W_m·K ThermalConductivity);

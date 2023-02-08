@@ -10,7 +10,7 @@ mod SI; use SI::*;
     scattering_coefficient: S::Scalar<ByLength>, // μs [m¯¹]
 }
 
-mod volume; use {ui::Result, num::sq, vector::{xy, xyz, vec3}, atomic_float::AtomicF32, volume::{product, size, Volume}};
+mod volume; use {ui::Result, num::{sq,cb}, vector::{xy, xyz, vec3}, atomic_float::AtomicF32, volume::{product, size, Volume}};
 mod view;
 
 struct RayCell<const R: usize, const C: usize>(Box<[u8; R*C/8]>) where [(); R*C/8]:;
@@ -23,6 +23,9 @@ impl<const R: usize, const C: usize> RayCell<R,C> where [(); R*C/8]: {
 
 fn main() -> Result {
     let size = xyz{x: 257, y: 257, z: 65};
+
+    // Environnment
+    const background_temperature : Temperature = 18.|C;
 
     // Body (Blood, Skin)
     const volumetric_rate_of_mass_perfusion : VolumetricMassRate = 0.5|kg_m3s;
@@ -269,7 +272,13 @@ fn main() -> Result {
         }
         // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
         for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
-            let δT = δx*(heat_loss_through_skin_air_interface/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
+            let k = 1.380649e-23|J_K;
+            const c : Speed = 299_792_458.|m_s;
+            const h : PlanckConstant = 6.62607015e-34 |J_Hz;
+            let σ = π*(c/(4.*π))*2.*1./8.*4.*π*cb(2./(h*c))*(k*k*k*k)*π.powi(4)/15.;
+            let q = σ*(sq(sq(initial_blood_temperature+(temperature[xyz{x, y, z: 1}] as f64|K))) - sq(sq(background_temperature)));
+            //let q = heat_loss_through_skin_air_interface + σ*((initial_blood_temperature+δT.K()).powi(4) - initial_blood_temperature.powi(4)); // T_blood⁴ - T_air⁴ is part of constant loss
+            let δT = δx*(q/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
             next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K()  as f32;
              // could have set adiabatic and directly offset T instead but this way is more higher order compatible
         } }
