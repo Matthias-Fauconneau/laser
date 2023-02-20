@@ -46,8 +46,8 @@ impl<T> Widget for Grid<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dy
     fn event(&mut self, size: size, context: &mut Option<ui::widget::EventContext>, event: &ui::widget::Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
 
-use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, PQ10, bgr}, ui::{background, text::text}};
-pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl Fn(f32)->String) {
+use {num::lerp, vector::{xy, minmax, MinMax}, image::{Image, fill, /*PQ10*/sRGB8, bgr}, ui::{background, text::text}};
+pub fn rgb/*10*/(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl Fn(f32)->String) {
     let MinMax{min,max} = minmax(source.data.into_iter().copied()).unwrap();
     if min == max { return; }
     /*let mut histogram = vec![0; target.size.x as usize];
@@ -59,7 +59,7 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl F
     for y in 0..std::cmp::min(source.size.y*den/num, target.size.y) {
         for x in 0..std::cmp::min(source.size.x*den/num, target.size.x) {
             let v = source[xy{x: x*num/den, y: y*num/den}];
-            target[xy{x,y}] = if v >= 0. { bgr::from(PQ10(f32::min(v/max, 1.))) } else { bgr{b: PQ10(f32::min(-v/-min, 1.)), g:0, r:0} }.into()
+            target[xy{x,y}] = if v >= 0. { bgr::from(/*PQ10*/sRGB8(f32::min(v/max, 1.))) } else { bgr{b: /*PQ10*/sRGB8(f32::min(-v/-min, 1.)), g:0, r:0} }.into()
         }
     }
     let mut histogram = vec![0; target.size.x as usize];
@@ -70,7 +70,7 @@ pub fn rgb10(target: &mut Image<&mut [u32]>, source: Image<&[f32]>, unit: impl F
         fill(&mut target, background().into());
         for x in 0..target.size.x {
             let v = min+(x as f32)/(target.size.x as f32)*(max-min);
-            let c = if v >= 0. { bgr::from(PQ10(v/max)) } else { bgr{b: PQ10(-v/-min), g:0, r:0} }.into();
+            let c = if v >= 0. { bgr::from(/*PQ10*/sRGB8(v/max)) } else { bgr{b: /*PQ10*/sRGB8(-v/-min), g:0, r:0} }.into();
             //for y in lerp(histogram[x as usize] as f32 / histogram_max as f32, target.size.y, 0)..target.size.y { target[xy{x,y}] = c; }
             if histogram[x as usize] > 0 {
                 let y0 = lerp(f32::ln(histogram[x as usize] as f32)/f32::ln(histogram_max as f32), target.size.y, 0);
@@ -97,7 +97,7 @@ impl Widget for ImageView {
         let (num, den) = if source.size.x*size.y > source.size.y*size.x { (source.size.x, size.x) } else { (source.size.y, size.y) };
         xy{x: std::cmp::min(source.size.x*den/num, size.x), y: std::cmp::min(source.size.y*den/num, size.y)*2}
     }
-    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb10(target, self.image.as_ref(), &self.unit) }
+    #[fehler::throws(ui::Error)] fn paint(&mut self, target: &mut ui::Target, _: ui::size, _: ui::int2) { rgb/*10*/(target, self.image.as_ref(), &self.unit) }
 }
 
 pub struct Fill<T>{ widget: T, fresh: bool }
@@ -156,8 +156,9 @@ pub fn write_avif(path: impl AsRef<std::path::Path>, image: Image<Box<[u32]>>) {
     #[cfg(not(feature="avif"))] println!("Built without AVIF support: {} {}", path.as_ref().display(), image.size);
     #[cfg(feature="avif")] {
         use ravif::*;
-        let EncodedImage { avif_file, .. } = Encoder::new().encode_raw_planes_10_bit(image.size.x as usize, image.size.y as usize,
-            image.iter().map(|rgb| [(rgb&0b1111111111) as u16, ((rgb>>10)&0b1111111111) as u16, (rgb>>20) as u16]),
+        let EncodedImage { avif_file, .. } = Encoder::new().
+            //encode_raw_planes_10_bit(image.size.x as usize, image.size.y as usize, image.iter().map(|rgb| [(rgb&((1<<10)-1)) as u16, ((rgb>>10)&((1<<10)-1)) as u16, (rgb>>20) as u16]),
+            encode_raw_planes_8_bit(image.size.x as usize, image.size.y as usize, image.iter().map(|rgb| [(rgb&0xFF) as u8, ((rgb>>10)&0xFF) as u8, (rgb>>20) as u8]),
             None::<[_; 0]>, rav1e::color::PixelRange::Full, MatrixCoefficients::Identity).unwrap(); // FIXME: PQ
         std::fs::write(path, avif_file).unwrap();
     }

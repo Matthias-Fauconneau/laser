@@ -41,7 +41,7 @@ fn main() -> Result {
         absorption_coefficient: 7.54|_cm,
         scattering_coefficient: scattering(999.|_m), //@750nm
     };
-    let ref cancer = DMaterial{absorption_coefficient: 10. |_m, ..tissue.clone()};
+    let ref cancer = DMaterial{absorption_coefficient: 10. |_cm, ..tissue.clone()};
     const initial_blood_temperature : Temperature = 36.85|C;
     let T = initial_blood_temperature;
     let ref glue = DMaterial{
@@ -122,7 +122,7 @@ fn main() -> Result {
         fn sample(&self, ref mut random : &mut impl Random) -> (vec3, vec3) {
             let diameter = self.diameter;
             let position = self.position + {
-                let xy{x,y} = if true { // Approximate Airy disc using gaussian
+                let xy{x,y} = if false { // Approximate Airy disc using gaussian
                     xy{x: diameter/2. * random.sample::<f32,_>(rand_distributions::StandardNormal), y: diameter/2. * random.sample::<f32,_>(rand_distributions::StandardNormal)}
                 } else {
                     use rand::distributions::{Distribution, Uniform};
@@ -139,7 +139,7 @@ fn main() -> Result {
     }
 
     let ref laser = Laser{
-        diameter: ((0.6|mm) / δx).f32(),
+        diameter: ((0.8|cm) / δx).f32(), // 0.6mm
         position: xyz{x: size.x as f32/2., y: size.y as f32/2., z: 0.5},
         direction: xyz{x: 0., y: 0., z: 1.},
         power: 1.|W,
