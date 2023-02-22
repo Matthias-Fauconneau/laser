@@ -1,4 +1,4 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds,fmt_internals)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
 use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant};
 mod SI; use SI::*;
@@ -315,16 +315,16 @@ fn main() -> Result {
 
     use {image::Image, ui::{list, Plot}, view::*};
 
-    let Tt = Plot::new("Temperature over time for probes on the axis", xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| format!("{} deep", (z as f64)*δx))));
+    let Tt = Plot::new(""/*"Temperature over time for probes on the axis"*/, xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| format!("{} deep", (z as f64)*δx))));
     let Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
     let Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
 
     let _Tyz = LabeledImage::new("Temperature difference over y,z (average over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|T| (T as f64|K).to_string()));
-    let Tdyz = LabeledImage::new("Thermal dose over y,z (maximum over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|Td| format!("{Td}")));
+    let Tdyz = LabeledImage::new(/*"Thermal dose over y,z (maximum over x)"*/"", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}), Box::new(|Td| {let mut s = String::new(); fmt("",Td as f64,&mut std::fmt::Formatter::new(&mut s)); s}));
 
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
     struct State { stop: usize }
-    let ref mut idle = move |app: &mut _| -> Result<bool> {
+    let ref mut idle = move |app: &mut App<State,/*Plot*/LabeledImage>| -> Result<bool> {
         let _report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, Some(&mut intensity), temperature.as_mut(), next_temperature.as_mut());
         swap(&mut temperature, &mut next_temperature);
         //use itertools::Itertools; println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
@@ -332,7 +332,7 @@ fn main() -> Result {
 
         let temperature = temperature.get_ref();
         for (time_averaged_temperature, temperature) in time_averaged_temperature.data.iter_mut().zip(temperature.data) {
-            let α = (δt/(60.|sec)).unitless() as f32;
+            let α = 1.;//(δt/(60.|sec)).unitless() as f32;
             *time_averaged_temperature = (1.-α)* (*time_averaged_temperature) + α*temperature;
         }
         for (thermal_dose, temperature) in thermal_dose.data.iter_mut().zip(&*time_averaged_temperature.data) {
@@ -340,16 +340,16 @@ fn main() -> Result {
             if T > 43.|C { *thermal_dose += (δt/(60.|sec)).unitless() as f32 * f32::powf(2., (T - (43.|C)).K() as f32); }
         }
 
-        let App{widget: Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz}), state: State{stop},..} = app;
+        let App{widget: /*Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz})*//*Tt*/Tdyz, state: State{stop},..} = app;
 
-        // T(t) at z={probes}
+        /*// T(t) at z={probes}
         Tt.x_values.push( δt.s() * step as f64 );
         for (i, &z) in Tt_z.iter().enumerate() {
             let p = xyz{x: size.x/2, y: size.y/2, z};
             Tt.sets[i].push( temperature[p] as f64 );
-        }
+        }*/
 
-        // axial: I(z)
+        /*// axial: I(z)
         Iz.x_values = list((0..size.z-1).map(|z| z as f64 * δx.m())).into();
         let count = {
             let r = f32::ceil(intensity.z_radius) as i32;
@@ -400,7 +400,7 @@ fn main() -> Result {
         for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
             fn mean<I:IntoIterator<IntoIter:ExactSizeIterator>,S:std::iter::Sum<I::Item>+std::ops::Div>(iter: I) -> S::Output where u32:Into<S> { let iter = iter.into_iter(); let len = iter.len(); iter.sum::<S>() / (len as u32).into() }
             Tyz[xy{x: image_x, y: image_y}] = mean::<_,f64>((1..size.x-1).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}])) as f32;
-        }}*/
+        }}*/*/
 
         // Td(y,z) (max x)
         let ref mut Tdyz = Tdyz.0.image.image;
@@ -418,5 +418,5 @@ fn main() -> Result {
     };
     let actions = [(' ', |app:&mut App<State,_>| app.state.stop *= 2)];
     let ref actions = actions.each_ref().map(|(key,closure)| (*key, closure as &_));
-    ui::run("Laser", &mut Idle{app: App{state: State{stop: 1024}, widget: Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz}), actions}, idle})
+    ui::run("Laser", &mut Idle{app: App{state: State{stop: 1024}, widget: /*Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz})*//*Tt*/Tdyz, actions}, idle})
 }

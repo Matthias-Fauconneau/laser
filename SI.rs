@@ -1,4 +1,17 @@
 #![allow(dead_code,non_upper_case_globals)]
+
+pub fn fmt(unit: &str, value: f64, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    if value == 0. { write!(f,"0") } else {
+        let log10 = f64::log10(f64::abs(value) as f64);
+        let floor1000 = f64::floor(log10/3.); // submultiple
+        let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
+        let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };
+        assert!(f64::clamp(-3., floor1000, 3.) == floor1000, "{floor1000}");
+        let submultiple = ["n","µ","m","","k","M","G"][(3+(floor1000 as i8)) as usize];
+        write!(f, "{}{}{}{unit}", if value<0. {"-"} else {""}, submagnitude, submultiple)
+    }
+}
+
 /// Quantities and units operators
 
 #[const_trait] pub trait Float {
@@ -152,17 +165,7 @@ macro_rules! quantity_unit { ( [ $($dimensions:expr),+ ] $unit:ident $quantity:i
         impl NotUnitless for $quantity {}
         #[allow(dead_code,non_upper_case_globals)] pub const $unit : Unit<$quantity> = unit();
         impl $quantity { #[allow(non_snake_case)] pub fn $unit(self) -> f64 { self.0 } }
-        impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            if self.0 == 0. { write!(f,"0") } else {
-                let log10 = f64::log10(f64::abs(self.0) as f64);
-                let floor1000 = f64::floor(log10/3.); // submultiple
-                let part1000 = num::exp10(log10 - floor1000*3.); // remaining magnitude part within the submultiple: x / 1000^⌊log1000(x)⌋
-                let submagnitude = if part1000 < 1. { format!("{:.1}", part1000) } else { (f64::round(part1000) as u32).to_string() };
-                assert!(f64::clamp(-3., floor1000, 3.) == floor1000, "{floor1000}");
-                let submultiple = ["n","µ","m","","k","M","G"][(3+(floor1000 as i8)) as usize];
-                write!(f, concat!("{}{}{}", stringify!($unit)), if self.0<0. {"-"} else {""}, submagnitude, submultiple)
-            }
-    }}
+        impl std::fmt::Display for $quantity { fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { fmt(stringify!($unit), self.0, f) } }
 } }
 
 // time [T], length [L], mass [M], temperature [θ]
