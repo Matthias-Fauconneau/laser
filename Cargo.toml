@@ -3,7 +3,8 @@ bin= [{name= 'laser', path= 'main.rs'}]
 
 [features]
 avif=['dep:ravif','dep:rav1e']
-default=['avif']
+image-io=['ui/image-io']
+default=['avif','image-io']
 
 [dependencies]
 fehler='*'
@@ -18,6 +19,3 @@ num={git='https://github.com/Matthias-Fauconneau/num'}
 vector={git='https://github.com/Matthias-Fauconneau/vector'}
 image={git='https://github.com/Matthias-Fauconneau/image'}
 ui={git='https://github.com/Matthias-Fauconneau/ui', features=['plot']}
-
-[patch.'https://github.com/Matthias-Fauconneau/ui']
-ui={path='../ui'}

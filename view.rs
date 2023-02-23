@@ -116,12 +116,12 @@ pub type LabeledImage = VBox<LabelImage>;
 impl LabeledImage { pub fn new(label: &'static str, image: ImageF, unit: Box<dyn Fn(f32)->String>) -> Self {
     Self(LabelImage{label: Fill::new(text(label)), image: ImageView{image, unit}}) } }
 
-pub struct App<'i, 'a, 'f, S, W> {
+pub struct App<'a,'f, S, W> {
     pub state: S,
     pub widget: W,
     pub actions: &'a [(char,&'f dyn Fn(&mut Self))],
 }
-impl<S, W: Widget> Widget for App<'_, '_, '_, S, W> {
+impl<S, W: Widget> Widget for App<'_, '_, S, W> {
     fn paint(&mut self, target: &mut Target, size: size, offset: int2) -> Result { self.widget.paint(target, size, offset) }
     fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &ui::Event) -> Result<bool> {
         if self.widget.event(size, context, event)? { Ok(true) }
