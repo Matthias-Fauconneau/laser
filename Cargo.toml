@@ -4,7 +4,7 @@ bin= [{name= 'laser', path= 'main.rs'}]
 [features]
 avif=['dep:ravif','dep:rav1e']
 image-io=['ui/image-io']
-default=['avif','image-io']
+default=['image-io']
 
 [dependencies]
 fehler='*'

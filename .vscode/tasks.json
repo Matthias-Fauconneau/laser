@@ -9,9 +9,7 @@
 		{
 			"type": "cargo",
 			"command": "run",
-			"problemMatcher": [
-				"$rustc"
-			],
+			"problemMatcher": ["$rustc"],
 			"label": "dev",
 			"dependsOn": ["kill-npm-first"],
 			"dependsOrder": "sequence",
@@ -20,11 +18,19 @@
 		{
 			"type": "cargo",
 			"command": "run",
-			"args": ["--features","avif","--release"],
-			"problemMatcher": [
-				"$rustc"
-			],
+			"args": ["no-default-features","--features","avif","--release"],
+			"problemMatcher": ["$rustc"],
 			"label": "avif release",
+			"dependsOn": ["kill-npm-first"],
+			"dependsOrder": "sequence",
+			"presentation": { "clear": true }
+		},
+		{
+			"type": "cargo",
+			"command": "run",
+			"args": ["--target","x86_64-pc-windows-gnu","--release"],
+			"problemMatcher": ["$rustc"],
+			"label": "windows",
 			"dependsOn": ["kill-npm-first"],
 			"dependsOrder": "sequence",
 			"presentation": { "clear": true }
