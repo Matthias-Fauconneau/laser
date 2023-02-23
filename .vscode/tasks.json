@@ -28,7 +28,7 @@
 		{
 			"type": "cargo",
 			"command": "run",
-			"args": ["--target","x86_64-pc-windows-gnu","--release"],
+			"args": ["--target","x86_64-pc-windows-gnu","--features","windows","--release"],
 			"problemMatcher": ["$rustc"],
 			"label": "windows",
 			"dependsOn": ["kill-npm-first"],
