@@ -3,7 +3,6 @@ bin= [{name= 'laser', path= 'main.rs'}]
 
 [features]
 avif=['dep:ravif','dep:rav1e']
-windows=['ui/softbuffer','ui/font-kit']
 
 [dependencies]
 fehler='*'
@@ -19,8 +18,5 @@ vector={git='https://github.com/Matthias-Fauconneau/vector'}
 image={git='https://github.com/Matthias-Fauconneau/image'}
 ui={git='https://github.com/Matthias-Fauconneau/ui', features=['plot']}
 
-[patch.'https://github.com/Matthias-Fauconneau/ui']
-ui={path='../ui'}
-
-[target.'cfg(windows)'.dependencies]
-ui={git='https://github.com/Matthias-Fauconneau/ui', features=['softbuffer','font-kit']}
+#[patch.'https://github.com/Matthias-Fauconneau/ui']
+#ui={path='../ui'}
