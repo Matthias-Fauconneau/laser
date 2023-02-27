@@ -11,22 +11,18 @@ use ui::{prelude::*, Widget, Target, size, int2, Event::{self, Key}, EventContex
 
 pub struct Linear<T>(pub T);
 impl<T> Widget for Linear<T> where for<'t> &'t mut T: IntoIterator<Item=&'t mut dyn Widget> {
-    #[throws] fn paint(&mut self, target: &mut Target, size: size, _offset: int2) {
+    #[throws] fn paint(&mut self, target: &mut Target, container_size: size, _offset: int2) {
         let mut widgets = self.0.into_iter();
         let len = 2;
         let mut pen = 0;
-        for _ in 0..len { if let Some(widget) = widgets.next() {
-            let size = widget.size(size-xy{x: 0, y: pen});
-            let ref mut target = target.slice_mut(xy{x: 0, y: pen}, size);
-            let size = target.size;
-            widget.paint(target, size, 0.into())?;
-            pen += size.y;
+        for _item_index in 0..len { if let Some(widget) = widgets.next() {
+            let item_size = widget.size(container_size-xy{x: 0, y: pen});
+            //assert!(item_size.x > 0 && item_size.y > 0, "{item_index}: {item_size} {container_size} {pen}");
+            let ref mut target = target.slice_mut(xy{x: 0, y: pen}, item_size);
+            widget.paint(target, item_size, 0.into())?;
+            pen += item_size.y;
         } else { break; }}
-        if pen < size.y {
-            let size = size-xy{x: 0, y: pen};
-            let ref mut target = target.slice_mut(xy{x: 0, y: pen}, size);
-            image::fill(target, background().into());
-        }
+        if pen < container_size.y { image::fill(&mut target.slice_mut(xy{x: 0, y: pen}, container_size-xy{x: 0, y: pen}), background().into()); }
     }
     fn event(&mut self, size: size, context: &mut Option<EventContext>, event: &Event) -> Result<bool> { for w in &mut self.0 { w.event(size, context, event)?; } Ok(false) }
 }
@@ -102,12 +98,12 @@ impl Widget for ImageView {
 
 pub struct Fill<T>{ widget: T, fresh: bool }
 impl<T> Fill<T> { fn new(widget: T) -> Self { Self{widget, fresh: false} } }
-impl<T:Widget> Widget for Fill<T> { fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
+impl<T:Widget> Widget for Fill<T> { #[track_caller] fn paint(&mut self, target: &mut ui::Target, size: ui::size, offset: ui::int2) -> ui::Result {
     if self.fresh { return Ok(()); } self.fresh = true;
     fill(target, background().into());
     self.widget.paint(target, size, offset)
 }
-fn event(&mut self, _: size, _: &mut Option<ui::EventContext>, _: &ui::Event) -> Result<bool> { self.fresh = false; Ok(true) }
+#[throws] fn event(&mut self, _: size, _: &mut Option<ui::EventContext>, event: &ui::Event) -> bool { if let Event::Stale = event { self.fresh = false; true } else { false } }
 fn size(&mut self, size: ui::size) -> ui::size { self.widget.size(size) }
 }
 
