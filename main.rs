@@ -1,4 +1,4 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds,fmt_internals, const_ops, stmt_expr_attributes)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds,fmt_internals, const_ops)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
 use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant};
 mod SI; use SI::*;
@@ -10,10 +10,8 @@ mod SI; use SI::*;
     scattering_coefficient: S::Scalar<ReciprocalLength>, // μs [m¯¹]
 }
 
-pub type Error = Box<dyn std::error::Error>;
-pub type Result<T=(), E=Error> = std::result::Result<T, E>;
-mod volume; use {num::{sq,cb}, vector::{xy, xyz, vec3}, atomic_float::AtomicF32, volume::{product, size, Volume}};
-#[cfg(feature="ui")] mod view;
+mod volume; use {ui::Result, num::{sq,cb}, vector::{xy, xyz, vec3}, atomic_float::AtomicF32, volume::{product, size, Volume}};
+mod view;
 
 struct RayCell<const R: usize, const C: usize>(Box<[u8; R*C/8]>) where [(); R*C/8]:;
 impl<const R: usize, const C: usize> Default for RayCell<R,C> where [(); R*C/8]: { fn default() -> Self { Self(Box::new([0; R*C/8])) } }
@@ -322,6 +320,7 @@ fn main() -> Result {
         ]
     }
 
+    let mut step = 0;
     let ref mut random = rand_xoshiro::Xoshiro128Plus::seed_from_u64(0);
 
     let mut laser_profile = [0.|W_m2].repeat((size.x/2-1) as usize);
@@ -335,7 +334,6 @@ fn main() -> Result {
 
     let Tt_z = [7, 14, 21];
 
-    #[cfg(feature="ui")] {
     use {image::Image, ui::{Plot, list}, view::*};
 
     let Tt = Plot::new(""/*"Temperature over time for probes on the axis"*/, xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| format!("{} deep", (z as f64)*δx))));
@@ -347,7 +345,6 @@ fn main() -> Result {
 
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
     struct State { stop: usize }
-    let mut step = 0;
     let ref mut idle = move |app: &mut App<State,_>| -> Result<bool> {
         let _report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, Some(&mut intensity), temperature.as_mut(), next_temperature.as_mut());
         swap(&mut temperature, &mut next_temperature);
@@ -443,108 +440,4 @@ fn main() -> Result {
     let actions = [(' ', |app:&mut App<State,_>| app.state.stop *= 2)];
     let ref actions = actions.each_ref().map(|(key,closure)| (*key, closure as &_));
     ui::run("Laser", &mut Idle{app: App{state: State{stop: 1024}, widget: Grid(Plots{Tt, Iz, Ir, Tyz: Tdyz}), actions}, idle})
-    }
-    #[cfg(not(feature="ui"))] {
-        pub fn list<T>(iter: impl std::iter::IntoIterator<Item=T>) -> Box<[T]> { iter.into_iter().collect() }
-        pub fn map<T,U>(iter: impl std::iter::IntoIterator<Item=T>, f: impl Fn(T)->U) -> Box<[U]> { list(iter.into_iter().map(f)) }
-        use {num::zero, vector::Rect, image::Image};
-        #[derive(Debug)] struct Plot {
-            title: &'static str,
-            axis_label: xy<&'static str>,
-            keys: Box<[String]>,
-            pub x_values: Vec<f64>,
-            pub sets: Box<[Vec<f64>]>,
-        }
-        impl Plot { pub fn new(title: &'static str, axis_label: xy<&'static str>, keys: Box<[String]>) -> Self {
-            let sets = map(&*keys, |_| Vec::new());
-            Self{title, axis_label, keys, x_values: Vec::new(), sets, range: zero(), top: 0, bottom: 0, left: 0, right: 0, last: 0, key: zero()}
-        }}
-        let mut Tt = Plot::new("Temperature over time for probes on the axis", xy{x: "Time ($s)", y: "ΔTemperature ($K)"}, Box::from(Tt_z.map(|z| format!("{} deep", (z as f64)*δx))));
-        let mut Iz = Plot::new("Laser intensity over depth (on the axis)",  xy{x: "Depth ($m)", y: "Intensity ($W/m²)"}, Box::from(["I(z)".to_string()]));
-        let mut Ir = Plot::new("Laser intensity at the surface (radial plot)", xy{x: "Radius ($m)", y: "Intensity ($W/m²)"}, Box::from([format!("I(r) at {Ir_z}"), "I0(r)".to_string()]));
-        //let mut Tyz = ("Temperature difference over y,z (average over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}));
-        let mut Tdyz = ("Thermal dose over y,z (maximum over x)", Image::zero(image::size::from(temperature.size.xz())-xy{x: 0, y: 1}));
-
-        for step in 0..1024 {
-            let report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, Some(&mut intensity), temperature.as_mut(), next_temperature.as_mut());
-            swap(&mut temperature, &mut next_temperature);
-            use itertools::Itertools; println!("{step} {}s {}", step as f64*δt, report.iter().format(" "));
-
-            let temperature = temperature.get_ref();
-            for (time_averaged_temperature, temperature) in time_averaged_temperature.data.iter_mut().zip(temperature.data) {
-                let α = 1.;//(δt/(60.|sec)).Dimensionless() as f32;
-                *time_averaged_temperature = (1.-α)* (*time_averaged_temperature) + α*temperature;
-            }
-            for (thermal_dose, temperature) in thermal_dose.data.iter_mut().zip(&*time_averaged_temperature.data) {
-                let T = initial_blood_temperature + (*temperature as f64|K);
-                if T > 43.|C { *thermal_dose += (δt/(60.|sec)).unitless() as f32 * f32::powf(2., (T - (43.|C)).K() as f32); }
-            }
-
-            Tt.x_values.push( δt.s() * step as f64 );
-            for (i, &z) in Tt_z.iter().enumerate() {
-                let p = xyz{x: size.x/2, y: size.y/2, z};
-                Tt.sets[i].push( temperature[p] as f64 );
-            }
-
-            // axial: I(z)
-            Iz.x_values = list((0..size.z-1).map(|z| z as f64 * δx.m())).into();
-            let count = {
-                let r = f32::ceil(intensity.z_radius) as i32;
-                (-r ..= r).map(|y| (-r ..= r).filter(move |&x| vector::sq(xy{x,y}) as f32 <= sq(intensity.z_radius))).flatten().count()
-            };
-            Iz.sets[0] = (0..size.z-1).map(|z| {
-                let power : Power = (intensity.z[z as usize].load(Relaxed) as f64) * laser.sample_power(step * ray_per_step);
-                let area : Area = count as f64 * sq(δx);
-                //assert_eq!(area, π*sq(intensity.z_radius as f64)*sq(δx));
-                let intensity : EnergyFluxDensity = power / area;
-                intensity.W_m2()
-            }).collect();
-
-            // radial: I(r)
-            Ir.x_values = list((0..size.x/2-1).map(|r| (r as f64) * δx.m())).into();
-            Ir.sets[0] = (0..size.x/2-1).map(|r| {
-                let mut count = 0;
-                for y in -((r+1) as i16) ..= (r+1) as i16 {
-                    for x in -((r+1) as i16)..= (r+1) as i16 {
-                        let r2 = vector::sq(xy{x,y}) as u16;
-                        if sq(r) <= r2 && r2 < sq(r+1) {
-                            count += 1;
-                        }
-                    }
-                }
-                let power : Power = (intensity.r[r as usize].load(Relaxed) as f64) * laser.sample_power(step * ray_per_step);
-                let area : Area = count as f64 * δx * δx; // Ring (discretized)
-                //assert_eq!(sq(δx) * 2.*π * (r+1) as f64, area);
-                let intensity : EnergyFluxDensity = power / area;
-                intensity.W_m2()
-            }).collect();
-            for position in iter::repeat_with(|| { let (position, _) = laser.sample(random); position }).take(ray_per_step) {
-                let xyz{x,y,..} = position;
-                let xy{x,y} = xy{x: x-(size.x/2) as f32, y: y-(size.y/2) as f32};
-                let r = f64::sqrt(vector::sq(xy{x,y}) as f64);
-                let power : Power = laser.sample_power(ray_per_step);
-                let area : Area = sq(δx) * 2.*π * r; // Ring
-                let intensity : EnergyFluxDensity = power / area;
-                let r = r as usize;
-                if r < laser_profile.len() { laser_profile[r] += intensity; }
-            }
-            Ir.sets[1] = list(laser_profile.iter().map(|&I| I.W_m2() / (step as f64))).into();
-
-            /*// T(y,z) (mean x)
-            let ref mut Tyz = Tyz.1;
-            for image_y in 0..Tyz.size.y { for image_x in 0..Tyz.size.x {
-                fn mean<I:IntoIterator<IntoIter:ExactSizeIterator>,S:std::iter::Sum<I::Item>+std::ops::Div>(iter: I) -> S::Output where u32:Into<S> { let iter = iter.into_iter(); let len = iter.len(); iter.sum::<S>() / (len as u32).into() }
-                Tyz[xy{x: image_x, y: image_y}] = mean::<_,f32>((1..size.x-1).map(|volume_x| temperature[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}]));
-            }}*/
-
-            // Td(y,z) (max x)
-            let ref mut Tdyz = Tdyz.1;
-            for image_y in 0..Tdyz.size.y { for image_x in 0..Tdyz.size.x {
-                Tdyz[xy{x: image_x, y: image_y}] = (1..size.x-1).map(|volume_x| thermal_dose[xyz{x: volume_x, y: image_x as u16, z: 1+image_y as u16}]).reduce(f32::max).unwrap();
-            }}
-        }
-        let path = format!("out/a={a},s={s},d={d},q={heat_loss_through_skin_air_interface},w={volumetric_rate_of_mass_perfusion},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
-        std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTdyz: ({Tdyz:?}, {:?})", Tdyz.1.data))?;
-        Ok(())
-    }
 }

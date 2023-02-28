@@ -16,7 +16,7 @@ rav1e={version= "0.6.1", default-features=false, features=["threading"], optiona
 num={git='https://github.com/Matthias-Fauconneau/num'}
 vector={git='https://github.com/Matthias-Fauconneau/vector'}
 image={git='https://github.com/Matthias-Fauconneau/image'}
-ui={git='https://github.com/Matthias-Fauconneau/ui', features=['plot'], optional=true}
+ui={git='https://github.com/Matthias-Fauconneau/ui', features=['plot']}
 
-[patch.'https://github.com/Matthias-Fauconneau/ui']
-ui={path='../ui'}
+#[patch.'https://github.com/Matthias-Fauconneau/ui']
+#ui={path='../ui'}
