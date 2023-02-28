@@ -18,6 +18,16 @@
 		{
 			"type": "cargo",
 			"command": "run",
+			"args": ["--release"],
+			"problemMatcher": ["$rustc"],
+			"label": "release",
+			"dependsOn": ["kill-npm-first"],
+			"dependsOrder": "sequence",
+			"presentation": { "clear": true }
+		},
+		{
+			"type": "cargo",
+			"command": "run",
 			"args": ["--no-default-features","--features","avif","--release"],
 			"problemMatcher": ["$rustc"],
 			"label": "avif release",
