@@ -1,6 +1,6 @@
-#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, default_free_fn, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds,fmt_internals, const_ops)]
+#![feature(slice_take, macro_metavar_expr, atomic_from_mut, array_methods, generic_const_exprs, generic_arg_infer, const_trait_impl, const_fn_floating_point_arithmetic, associated_type_bounds,fmt_internals)]
 #![allow(confusable_idents, incomplete_features, non_camel_case_types, non_snake_case, non_upper_case_globals, uncommon_codepoints)]
-use std::{default::default, mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant};
+use std::{mem::swap, ops::Range, iter, array::from_fn, f64::consts::PI as π, f32::consts::PI, thread, sync::atomic::{AtomicU32, Ordering::Relaxed}, time::Instant}; fn default<T:Default>()->T{T::default()}
 mod SI; use SI::*;
 #[derive(PartialEq,Clone)] struct Material<S: System> {
     mass_density: MassDensity, // ρ [kg/m³]
@@ -35,14 +35,19 @@ fn main() -> Result {
     const air_kinematic_viscosity : KinematicViscosity = 1.5e-5|m2_s;
     const air_thermal_conductivity : ThermalConductivity = 0.025|W_m·K;
     const air_thermal_diffusivity : Diffusivity = air_thermal_conductivity / air_volumetric_heat_capacity;*/
-    const background_temperature : Temperature = 15.|C;
-    const _air_temperature : Temperature = background_temperature;
-
-    // Body (Skin, Blood)
-    const initial_blood_temperature : Temperature = 36.85|C;
-    const _skin_temperature : Temperature = initial_blood_temperature;
-    const volumetric_rate_of_mass_perfusion : VolumetricMassRate = 0.5|kg_m3s;
-    const heat_loss_through_skin_air_interface : HeatFluxDensity = 50.|W_m2; // evaporation, radiation, convection, conduction
+    
+    struct Body {//Skin, Blood
+        initial_blood_temperature : Temperature,
+        //skin_temperature : Temperature,
+        volumetric_rate_of_mass_perfusion : VolumetricMassRate,
+        heat_loss_through_skin_air_interface : HeatFluxDensity,
+    }
+    let ref body = Body{
+        initial_blood_temperature:  36.85|C,
+        //_skin_temperature: initial_blood_temperature,
+        volumetric_rate_of_mass_perfusion: 0.5|kg_m3s,
+        heat_loss_through_skin_air_interface : 50.|W_m2, // evaporation, radiation, convection, conduction
+    };
 
     /*const h_convection : HeatTransferCoefficient = {
         const Prandtl : Dimensionless = air_kinematic_viscosity / air_thermal_diffusivity;
@@ -55,7 +60,7 @@ fn main() -> Result {
     panic!("{h_convection}");*/
 
     const anisotropy : f32 = 0.9; // g (mean cosine of the deflection angle) [Henyey-Greenstein]
-    const fn scattering(reduced_scattering_coefficient: ReciprocalLength) -> ReciprocalLength { reduced_scattering_coefficient / (anisotropy as f64) }
+    fn scattering(reduced_scattering_coefficient: ReciprocalLength) -> ReciprocalLength { reduced_scattering_coefficient / (anisotropy as f64) }
     type DMaterial = self::Material<Dimensionalized>;
     let ref tissue = DMaterial{
         mass_density: 1030.|kg_m3,
@@ -65,7 +70,7 @@ fn main() -> Result {
         scattering_coefficient: scattering(999.|_m), //@750nm
     };
     let ref cancer = DMaterial{absorption_coefficient: 10. |_cm, ..tissue.clone()};
-    let T = initial_blood_temperature;
+    let T = body.initial_blood_temperature;
     let ref glue = DMaterial{
         mass_density: 895.|kg_m3,
         specific_heat_capacity: (3353.5|J_K·kg) + (5.245|J_K2·kg) * T, // <~5000
@@ -253,7 +258,7 @@ fn main() -> Result {
         format!("{} samples {}ms {}μs", ray_per_step, elapsed.as_millis(), elapsed.as_micros()/(ray_per_step as u128))
     }
 
-    fn heat_diffusion((material_list, ref material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time,
+    fn heat_diffusion((material_list, ref material_volume): (&[Material], &Volume<&[u8]>), δx: Length, δt: Time, body: &Body,
                     ref temperature: Volume<&[float]>, mut next_temperature: Volume<&mut [float]>) -> String {
         let start = Instant::now();
         let size = temperature.size;
@@ -276,7 +281,7 @@ fn main() -> Result {
                 let α = thermal_diffusivity / sq(δx) * δt;
                 // Blood flow
                 let blood_specific_heat_capacity = 3595.|J_K·kg;
-                let volumetric_rate_of_heat_capacity_perfusion : VolumetricPowerCapacity = volumetric_rate_of_mass_perfusion * blood_specific_heat_capacity;
+                let volumetric_rate_of_heat_capacity_perfusion : VolumetricPowerCapacity = body.volumetric_rate_of_mass_perfusion * blood_specific_heat_capacity;
                 let metabolic_heat = δt * ((1000.|W_m3) / volumetric_heat_capacity);
                 // Explicit time step (First order: Euler): T[t+1]  = T[t] + δt·dt(T) {=> δt}
                 let β = (δt * (volumetric_rate_of_heat_capacity_perfusion / volumetric_heat_capacity)).unitless();
@@ -294,10 +299,12 @@ fn main() -> Result {
         }
         // Boundary conditions: adiabatic dz(T)_boundary=q (Neumann) using ghost points
         for y in 0..size.y { for x in 0..size.x { // Top: Sets ghost points to yield constant flux from points below
-            const c : Speed = 299_792_458.|m_s;
-            const h : PlanckConstant = 6.62607015e-34 |J_Hz;
+            let c : Speed = 299_792_458.|m_s;
+            let h : PlanckConstant = 6.62607015e-34 |J_Hz;
+            let k : HeatCapacity = 1.380649e-23|J_K;
             let σ = π*(c/(4.*π))*2.*1./8.*4.*π*cb(2./(h*c))*(k*k*k*k)*π.powi(4)/15.;
-            let q = σ*(sq(sq(initial_blood_temperature+(temperature[xyz{x, y, z: 1}] as f64|K))) - sq(sq(background_temperature)));
+            let background_temperature : Temperature = 15.|C;
+            let q = σ*(sq(sq(body.initial_blood_temperature+(temperature[xyz{x, y, z: 1}] as f64|K))) - sq(sq(background_temperature)));
             //let q = heat_loss_through_skin_air_interface + σ*((initial_blood_temperature+δT.K()).powi(4) - initial_blood_temperature.powi(4)); // T_blood⁴ - T_air⁴ is part of constant loss
             let δT = δx*(q/material_list[0].thermal_conductivity); // Temperature difference yielding the equivalent flux only with the simulated heat
             next_temperature[xyz{x, y, z: 0}] = next_temperature[xyz{x, y, z: 1}] - δT.K()  as f32;
@@ -312,11 +319,11 @@ fn main() -> Result {
         format!("{}M points {}ms {}ns", temperature.len()/1000000, elapsed.as_millis(), elapsed.as_nanos()/(temperature.len() as u128))
     }
 
-    fn next(ref mut random : &mut ParallelRandom, (material_list, ref material_volume): (&[Material], Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser,
+    fn next(ref mut random : &mut ParallelRandom, (material_list, ref material_volume): (&[Material], Volume<&[u8]>), δx: Length, δt: Time, laser: &Laser, body: &Body,
                     intensity_sum: Option<&mut IntensitySum>, ref mut temperature: Volume<&mut [AtomicF]>, mut next_temperature: Volume<&mut [AtomicF]>) -> [String; 2] {
         [
             light_propagation(random, (material_list, material_volume), δx, δt, laser, intensity_sum, temperature),
-            heat_diffusion((material_list, material_volume), δx, δt, temperature.get_mut().as_ref(), next_temperature.get_mut())
+            heat_diffusion((material_list, material_volume), δx, δt, body, temperature.get_mut().as_ref(), next_temperature.get_mut())
         ]
     }
 
@@ -346,7 +353,7 @@ fn main() -> Result {
     derive_IntoIterator! { pub struct Plots { pub Tt: Plot, pub Iz: Plot, pub Ir: Plot, pub Tyz: LabeledImage} }
     struct State { stop: usize }
     let ref mut idle = move |app: &mut App<State,_>| -> Result<bool> {
-        let _report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, Some(&mut intensity), temperature.as_mut(), next_temperature.as_mut());
+        let _report = next(random, (material_list, material_volume.as_ref()), δx, δt, laser, body, Some(&mut intensity), temperature.as_mut(), next_temperature.as_mut());
         swap(&mut temperature, &mut next_temperature);
         //use itertools::Itertools; println!("{step} {}s {}", step as f32*δt, report.iter().format(" "));
         step += 1;
@@ -357,7 +364,7 @@ fn main() -> Result {
             *time_averaged_temperature = (1.-α)* (*time_averaged_temperature) + α*temperature;
         }
         for (thermal_dose, temperature) in thermal_dose.data.iter_mut().zip(&*time_averaged_temperature.data) {
-            let T = initial_blood_temperature + (*temperature as f64|K);
+            let T = body.initial_blood_temperature + (*temperature as f64|K);
             if T > 43.|C { *thermal_dose += (δt/(60.|sec)).unitless() as f32 * f32::powf(2., (T - (43.|C)).K() as f32); }
         }
 
@@ -431,7 +438,8 @@ fn main() -> Result {
 
         let stop = *stop;
         if step == stop {
-            let path = format!("out/a={a},s={s},d={d},q={heat_loss_through_skin_air_interface},w={volumetric_rate_of_mass_perfusion},t={step}", a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter);
+            let path = format!("out/a={a},s={s},d={d},q={q},w={w},t={step}", 
+                a=tissue.absorption_coefficient, s=tissue.scattering_coefficient, d=laser.diameter, q=body.heat_loss_through_skin_air_interface,w=body.volumetric_rate_of_mass_perfusion);
             //std::fs::write(&path, format!("Tt: {Tt:?}\nIz: {Iz:?}\nIr: {Ir:?}\nTdyz: ({Tdyz:?}, {:?})", Tdyz.data)).unwrap();
             write_image(path+".avif", app);
         }

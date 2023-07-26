@@ -14,9 +14,9 @@ rand-distributions={package='rand_distr', version='*'}
 ravif={git='https://github.com/kornelski/cavif-rs', optional=true}
 rav1e={version= "0.6.1", default-features=false, features=["threading"], optional=true} # ravif misses pub use rav1e::color::PixelRange
 num={git='https://github.com/Matthias-Fauconneau/num'}
-vector={git='https://github.com/Matthias-Fauconneau/vector'}
+vector={git='https://github.com/Matthias-Fauconneau/vector',features=['associated_type_bounds']}
 image={git='https://github.com/Matthias-Fauconneau/image'}
-ui={git='https://github.com/Matthias-Fauconneau/ui', features=['plot']}
+ui={git='https://github.com/Matthias-Fauconneau/ui', default-features=false, features=['plot','softbuffer']}
 
-#[patch.'https://github.com/Matthias-Fauconneau/ui']
-#ui={path='../ui'}
+[patch.'https://github.com/Matthias-Fauconneau/ui']
+ui={path='../ui'}

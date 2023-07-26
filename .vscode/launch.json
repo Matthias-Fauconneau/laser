@@ -1,0 +1,3 @@
+{"version": "0.2.0", "configurations": [
+    {"type": "lldb","request": "launch","name": "Laser","cargo": {"args": ["build","--release","--bin=laser","--package=laser"],"filter": {"name": "laser","kind": "bin"}},"args": [],"cwd": "${workspaceFolder}"},
+]}
